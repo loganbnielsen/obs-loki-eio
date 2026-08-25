@@ -1,0 +1,9 @@
+(test
+ (name test_loki)
+ (modules test_loki)
+ (libraries obs-eio obs_loki_eio eio eio_main alcotest yojson cohttp-eio http uri))
+
+(test
+ (name test_obs_tls)
+ (modules test_obs_tls)
+ (libraries obs_loki_eio alcotest))
