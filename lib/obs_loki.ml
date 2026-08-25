@@ -69,10 +69,10 @@ let trace_id_hex (hi, lo) = Printf.sprintf "%016Lx%016Lx" hi lo
 let span_id_hex id        = Printf.sprintf "%016Lx" id
 
 let level_string = function
-  | Obs.Debug -> "debug"
-  | Obs.Info  -> "info"
-  | Obs.Warn  -> "warn"
-  | Obs.Error -> "error"
+  | Obs_eio.Debug -> "debug"
+  | Obs_eio.Info  -> "info"
+  | Obs_eio.Warn  -> "warn"
+  | Obs_eio.Error -> "error"
 
 (* Wall-clock nanoseconds from the Eio clock as a decimal string —
    Loki's timestamp format. *)
@@ -109,11 +109,11 @@ let loki_push_body ~stream_labels ~values =
 (* Backend                                                             *)
 (* ------------------------------------------------------------------ *)
 
-type stream_label = Obs.label_name
+type stream_label = Obs_eio.label_name
 
-let stream_label = Obs.label_name
+let stream_label = Obs_eio.label_name
 
-let stream_label_to_string = Obs.label_name_to_string
+let stream_label_to_string = Obs_eio.label_name_to_string
 
 let selected_stream_labels ~context label_names =
   List.filter_map (fun label_name ->
@@ -127,8 +127,8 @@ let selected_stream_labels ~context label_names =
       None
   ) label_names
 
-let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
-  let emit_span (e : Obs.span_event) =
+let create ~net ~clock ~url ?(label_names = []) () : Obs_eio.backend =
+  let emit_span (e : Obs_eio.span_event) =
     let stream_labels =
       ("service", e.service) ::
       selected_stream_labels ~context:e.context label_names
@@ -139,14 +139,14 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
     let trace    = trace_fields trace_id span_id in
     let values =
       if e.log_entries = [] then
-        (* Span had no Obs.log calls — emit a single span-completion line. *)
+        (* Span had no Obs_eio.log calls — emit a single span-completion line. *)
         let status = match e.status with `Ok -> "ok" | `Error s -> "error:" ^ s in
         let line = logfmt
           ([("level", "info"); ("span", e.name); ("status", status)] @ trace)
         in
         [ (ts, line) ]
       else
-        List.map (fun (entry : Obs.log_entry) ->
+        List.map (fun (entry : Obs_eio.log_entry) ->
           let line = logfmt
             ([ ("level", level_string entry.level);
                ("msg", entry.message);
@@ -160,4 +160,4 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
      | Ok ()      -> ()
      | Error msg  -> Printf.eprintf "[obs-loki] %s\n%!" msg)
   in
-  { Obs.emit_span; emit_metric = (fun _ -> ()); declare_metric = (fun _ -> ()) }
+  { Obs_eio.emit_span; emit_metric = (fun _ -> ()); declare_metric = (fun _ -> ()) }

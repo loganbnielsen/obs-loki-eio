@@ -1,7 +1,7 @@
 (** Loki HTTP push backend for obs-eio.
 
-    Emits one structured JSON log line per [Obs.log] call made within a span,
-    plus one span-completion line for spans with no [Obs.log] calls. Lines
+    Emits one structured JSON log line per [Obs_eio.log] call made within a span,
+    plus one span-completion line for spans with no [Obs_eio.log] calls. Lines
     are pushed synchronously to Loki's push API when the span closes — one
     HTTP POST per span, which can block the closing fiber up to the 5s
     request timeout. There is no buffering, batching, or backpressure; this
@@ -32,18 +32,18 @@
           ~label_names:[Obs_loki.stream_label "env";
                         Obs_loki.stream_label "region"] () in
       let ot =
-        Obs.create ~service:"payments-worker"
+        Obs_eio.create ~service:"payments-worker"
           ~mono_clock:env#mono_clock ~backend:loki in
-      let ot = Obs.with_context ot [("env", "prod"); ("region", "us-east-1")] in
-      Obs.with_span ot "payment.process" (fun sp ->
-        Obs.log sp Obs.Info ~fields:[("payment_id", "p_123")] "processing")
+      let ot = Obs_eio.with_context ot [("env", "prod"); ("region", "us-east-1")] in
+      Obs_eio.with_span ot "payment.process" (fun sp ->
+        Obs_eio.log sp Obs_eio.Info ~fields:[("payment_id", "p_123")] "processing")
     ]} *)
 
-type stream_label = Obs.label_name
+type stream_label = Obs_eio.label_name
 (** Validated context field name that can be promoted to a Loki stream label. *)
 
 val stream_label : string -> stream_label
-(** [stream_label name] validates [name] with [Obs.label_name] and returns a
+(** [stream_label name] validates [name] with [Obs_eio.label_name] and returns a
     typed Loki stream-label selector. Raises [Invalid_argument] on invalid
     names. *)
 
@@ -58,4 +58,4 @@ val create
          fields are logged to stderr and omitted. [service] is always included.
          Default: [[]]. *)
   -> unit
-  -> Obs.backend
+  -> Obs_eio.backend

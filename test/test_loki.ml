@@ -68,10 +68,10 @@ let test_push_contains_service () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port) () in
-    let ot = Obs.create ~service:"test-svc" ~mono_clock:env#mono_clock
+    let ot = Obs_eio.create ~service:"test-svc" ~mono_clock:env#mono_clock
                ~backend:loki in
-    Obs.with_span ot "op" (fun sp ->
-      Obs.log sp Obs.Info "hello from test");
+    Obs_eio.with_span ot "op" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info "hello from test");
     let body = Eio.Promise.await body_promise in
     Alcotest.(check bool) "contains streams key"
       true (String.length body > 0 && String.sub body 0 1 = "{");
@@ -83,9 +83,9 @@ let test_log_message_in_payload () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port) () in
-    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-    Obs.with_span ot "work" (fun sp ->
-      Obs.log sp Obs.Info ~fields:[("key", "val")] "my-unique-message");
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "work" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info ~fields:[("key", "val")] "my-unique-message");
     let body = Eio.Promise.await body_promise in
     Alcotest.(check bool) "log message present" true
       (contains body "my-unique-message");
@@ -101,8 +101,8 @@ let test_span_name_in_payload () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port) () in
-    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-    Obs.with_span ot "my-span-name" (fun _sp -> ());
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "my-span-name" (fun _sp -> ());
     let body = Eio.Promise.await body_promise in
     Alcotest.(check bool) "span name in payload" true
       (contains body "my-span-name"))
@@ -114,9 +114,9 @@ let test_context_fields_become_labels () =
                  ~url:(Printf.sprintf "http://localhost:%d" port)
                  ~label_names:[Obs_loki.stream_label "env";
                                Obs_loki.stream_label "region"] () in
-    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-    let ot = Obs.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
-    Obs.with_span ot "op" (fun _sp -> ());
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    let ot = Obs_eio.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
+    Obs_eio.with_span ot "op" (fun _sp -> ());
     let body = Eio.Promise.await body_promise in
     Alcotest.(check bool) "env label present" true
       (contains body "\"env\":\"prod\"");
@@ -130,9 +130,9 @@ let test_selected_label_missing_from_context_warns_and_is_omitted () =
                  ~url:(Printf.sprintf "http://localhost:%d" port)
                  ~label_names:[Obs_loki.stream_label "env";
                                Obs_loki.stream_label "region"] () in
-    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-    let ot = Obs.with_context ot [("env", "prod")] in
-    Obs.with_span ot "op" (fun _sp -> ());
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    let ot = Obs_eio.with_context ot [("env", "prod")] in
+    Obs_eio.with_span ot "op" (fun _sp -> ());
     let body = Eio.Promise.await body_promise in
     Alcotest.(check bool) "present label included" true
       (contains body "\"env\":\"prod\"");
@@ -149,11 +149,11 @@ let test_multiple_log_calls () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port) () in
-    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-    Obs.with_span ot "multi" (fun sp ->
-      Obs.log sp Obs.Info  "first";
-      Obs.log sp Obs.Warn  "second";
-      Obs.log sp Obs.Error "third");
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "multi" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info  "first";
+      Obs_eio.log sp Obs_eio.Warn  "second";
+      Obs_eio.log sp Obs_eio.Error "third");
     let body = Eio.Promise.await body_promise in
     Alcotest.(check bool) "first present"  true (contains body "first");
     Alcotest.(check bool) "second present" true (contains body "second");
@@ -164,8 +164,8 @@ let test_loki_unreachable_does_not_raise () =
   (* Point at a port nothing is listening on — should log to stderr and return. *)
   let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                ~url:"http://localhost:19399" () in
-  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-  Obs.with_span ot "op" (fun sp -> Obs.log sp Obs.Info "test")
+  let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+  Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test")
   (* If this returns without raising, the test passes. *)
 
 (* Verify the JSON payload has the correct Loki push shape:
@@ -175,8 +175,8 @@ let test_payload_json_shape () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port) () in
-    let ot = Obs.create ~service:"shape-svc" ~mono_clock:env#mono_clock ~backend:loki in
-    Obs.with_span ot "check" (fun sp -> Obs.log sp Obs.Info "shape-test");
+    let ot = Obs_eio.create ~service:"shape-svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "check" (fun sp -> Obs_eio.log sp Obs_eio.Info "shape-test");
     let body = Eio.Promise.await body_promise in
     let json = Yojson.Safe.from_string body in
     (match json with
@@ -207,8 +207,8 @@ let test_non_2xx_does_not_raise () =
   with_mock_loki_server env ~status_code:500 (fun ~port ~body_promise:_ ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port) () in
-    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-    Obs.with_span ot "op" (fun sp -> Obs.log sp Obs.Info "test"))
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test"))
   (* Must return without raising even though server returned 500. *)
 
 (* Verify that a non-2xx response with a short body is captured without error. *)
@@ -217,8 +217,8 @@ let test_non_2xx_short_body () =
   with_mock_loki_server env ~status_code:400 (fun ~port ~body_promise:_ ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port) () in
-    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
-    Obs.with_span ot "op" (fun sp -> Obs.log sp Obs.Warn "test"))
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Warn "test"))
   (* Must return without raising even with short error body. *)
 
 (* ------------------------------------------------------------------ *)
@@ -274,11 +274,11 @@ let test_live_ingestion () =
     let unique_service = Printf.sprintf "loki-e2e-test-%d" (int_of_float (Unix.gettimeofday ())) in
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:loki_url () in
-    let ot = Obs.create ~service:unique_service
+    let ot = Obs_eio.create ~service:unique_service
                ~mono_clock:env#mono_clock ~backend:loki in
     let start_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
-    Obs.with_span ot "e2e-span" (fun sp ->
-      Obs.log sp Obs.Info ~fields:[("check", "ingestion")] "loki-e2e-marker");
+    Obs_eio.with_span ot "e2e-span" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info ~fields:[("check", "ingestion")] "loki-e2e-marker");
     Eio.Time.sleep env#clock 0.5;
     let end_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
     let query = Printf.sprintf "{service=\"%s\"}" unique_service in
@@ -298,15 +298,15 @@ let test_live_trace_id_round_trip () =
     let unique_service = Printf.sprintf "loki-trace-test-%d" (int_of_float (Unix.gettimeofday ())) in
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:loki_url () in
-    let ot = Obs.create ~service:unique_service
+    let ot = Obs_eio.create ~service:unique_service
                ~mono_clock:env#mono_clock ~backend:loki in
     let captured_trace_id = ref "" in
     let start_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
-    Obs.with_span ot "trace-test" (fun sp ->
-      let ctx = Obs.current_trace_ctx sp in
+    Obs_eio.with_span ot "trace-test" (fun sp ->
+      let ctx = Obs_eio.current_trace_ctx sp in
       let (hi, lo) = ctx.Obs_trace.trace_id in
       captured_trace_id := Printf.sprintf "%016Lx%016Lx" hi lo;
-      Obs.log sp Obs.Info "trace-id-check");
+      Obs_eio.log sp Obs_eio.Info "trace-id-check");
     (* trace_id is written into the log line body as a logfmt field, not as a
        stream label. Use "| logfmt" to parse the line before filtering on it.
        Retry for up to 5s to tolerate Loki ingestion latency under load. *)

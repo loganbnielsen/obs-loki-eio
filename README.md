@@ -39,18 +39,18 @@ val create
          Missing context fields are logged to stderr and omitted. [service] is
          always included. Default: [[]]. *)
   -> unit
-  -> Obs.backend
+  -> Obs_eio.backend
 ```
 
 ## Log Line Format
 
-Each `Obs.log` call within a span becomes one Loki log line in **logfmt** format:
+Each `Obs_eio.log` call within a span becomes one Loki log line in **logfmt** format:
 
 ```
 level=info msg="processing payment" span=payment.process key=val
 ```
 
-Spans that close without any `Obs.log` calls emit a single completion line:
+Spans that close without any `Obs_eio.log` calls emit a single completion line:
 
 ```
 level=info span=payment.process status=ok
@@ -90,9 +90,9 @@ let loki = Obs_loki.create ~net:env#net ~clock:env#clock
              ~url:"http://localhost:3100"
              ~label_names:[Obs_loki.stream_label "env";
                            Obs_loki.stream_label "region"] () in
-let ot = Obs.create ~service:"payments-worker"
+let ot = Obs_eio.create ~service:"payments-worker"
            ~mono_clock:env#mono_clock ~backend:loki in
-let ot = Obs.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
+let ot = Obs_eio.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
 ```
 
 Resulting stream: `{service="payments-worker", env="prod", region="eu-west-1"}`
