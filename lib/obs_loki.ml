@@ -160,4 +160,4 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
      | Ok ()      -> ()
      | Error msg  -> Printf.eprintf "[obs-loki] %s\n%!" msg)
   in
-  { Obs.emit_span; emit_metric = (fun _ -> ()) }
+  { Obs.emit_span; emit_metric = (fun _ -> ()); declare_metric = (fun _ -> ()) }
