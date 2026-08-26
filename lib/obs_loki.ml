@@ -11,8 +11,8 @@ let http_post ~net ~clock ~timeout ~headers ~url ~body =
   try
     Eio.Time.with_timeout_exn clock timeout (fun () ->
       Eio.Switch.run (fun sw ->
-        match Obs_loki_tls.https_for_uri push_url with
-        | Error error -> Error ("Loki push: " ^ Obs_loki_tls.error_to_string error)
+        match Https_eio.https_for_uri push_url with
+        | Error error -> Error ("Loki push: " ^ Https_eio.error_to_string error)
         | Ok https ->
           let client = Cohttp_eio.Client.make ~https net in
           let (resp, resp_body) =
