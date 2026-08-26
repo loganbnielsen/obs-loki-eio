@@ -48,8 +48,8 @@ val create
   -> Obs_eio.backend
 ```
 
-`Obs_loki_tls` is also installed for tests and advanced callers that need the typed
-HTTPS setup errors used by `create`.
+HTTPS setup is delegated to `https-eio`, which provides the typed setup errors used by
+`create`.
 
 ## Log Line Format
 
@@ -121,9 +121,8 @@ the span close time.
 ## HTTPS
 
 `https://` URLs are supported: the client authenticates against the system CA bundle
-(searched at the standard per-distro paths) and refuses to connect without one, rather
-than silently skipping certificate verification. See `Obs_loki_tls.error_to_string` for
-the failure modes.
+via `https-eio`/`ca-certs` and refuses to connect without certificate verification. TLS
+setup failures are reported through `Https_eio.error_to_string`.
 
 ## Buffering and Backpressure
 
