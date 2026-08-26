@@ -9,7 +9,7 @@
  (description "\
 Converts obs-eio span events into structured logfmt log lines and pushes them to
 Loki's push API when each span closes. Not a general-purpose Loki client: it is the
-Loki backend for obs-eio's Obs.backend interface.")
+Loki backend for obs-eio's Obs_eio.backend interface.")
  (maintainers "lbendtlynielsen@gmail.com")
  (authors "lbendtly")
  (license "MIT")

@@ -13,6 +13,8 @@ continues to be used as an external dependency.
 
 ```bash
 eval $(opam env)
+# Until obs-eio is in your switch from OPAM, pin the sibling checkout:
+# opam pin add obs-eio ../obs-eio -yn
 dune build
 ```
 
@@ -34,13 +36,20 @@ val create
   -> clock:_ Eio.Time.clock
   -> url:string
      (** Base URL, e.g. "http://localhost:3100". Push path appended automatically. *)
+  -> ?timeout:float
+     (** Request timeout in seconds. Default: 5.0. *)
+  -> ?headers:(string * string) list
+     (** Extra HTTP headers, e.g. auth/proxy headers such as X-Scope-OrgID. *)
   -> ?label_names:Obs_loki.stream_label list
      (** Context field names to promote to Loki stream labels (low-cardinality only).
          Missing context fields are logged to stderr and omitted. [service] is
-         always included. Default: [[]]. *)
+         always included. Default: []. *)
   -> unit
   -> Obs_eio.backend
 ```
+
+`Obs_loki_tls` is also installed for tests and advanced callers that need the typed
+HTTPS setup errors used by `create`.
 
 ## Log Line Format
 
@@ -105,10 +114,9 @@ the application.
 
 ## Timestamps
 
-Log line timestamps are wall-clock nanoseconds from `Unix.gettimeofday()` taken at span
-close time. `span_event.start_ns` / `end_ns` are monotonic and not used for timestamps
-(Loki requires wall-clock Unix nanoseconds). All log lines in a span share that one
-timestamp — not a per-entry timestamp.
+Log line timestamps are wall-clock nanoseconds derived from the `clock` passed to
+`create` and each entry's monotonic timestamp. The span-completion fallback line uses
+the span close time.
 
 ## HTTPS
 
@@ -119,8 +127,8 @@ the failure modes.
 
 ## Buffering and Backpressure
 
-None. `emit_span` pushes synchronously — one HTTP POST per span close, bounded by a 5s
-timeout — and there is no queue or batching. This is the 0.1 behavior, not a temporary
+None. `emit_span` pushes synchronously — one HTTP POST per span close, bounded by the
+configured timeout — and there is no queue or batching. This is the 0.1 behavior, not a temporary
 gap; add async batching only if synchronous push latency proves unacceptable for a
 target user, since a switch-owned queue and flush fiber is real lifecycle complexity.
 
@@ -145,4 +153,4 @@ Recommended LogQL queries once a service is pushing logs through this backend:
 
 - Batching / async push — `emit_span` is synchronous; each span close does one HTTP POST
 - `emit_metric` — metrics go to `obs-prometheus-eio`, not Loki
-- Loki tenant headers (`X-Scope-OrgID`) — single-tenant only
+- Async batching / lifecycle-managed background flushing

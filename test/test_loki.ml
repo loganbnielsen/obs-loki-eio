@@ -159,6 +159,56 @@ let test_multiple_log_calls () =
     Alcotest.(check bool) "second present" true (contains body "second");
     Alcotest.(check bool) "third present"  true (contains body "third"))
 
+let test_logfmt_field_keys_are_safe () =
+  Eio_main.run @@ fun env ->
+  with_mock_loki_server env (fun ~port ~body_promise ->
+    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+                 ~url:(Printf.sprintf "http://localhost:%d" port) () in
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "work" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info
+        ~fields:[("bad key=", "v"); ("msg", "caller"); ("trace_id", "fake")]
+        "real-message");
+    let body = Eio.Promise.await body_promise in
+    Alcotest.(check bool) "invalid chars are normalized"
+      true (contains body "bad_key_=v");
+    Alcotest.(check bool) "reserved msg is prefixed"
+      true (contains body "field_msg=caller");
+    Alcotest.(check bool) "reserved trace_id is prefixed"
+      true (contains body "field_trace_id=fake");
+    Alcotest.(check bool) "built-in message remains authoritative"
+      true (contains body "msg=real-message"))
+
+let test_log_entries_get_distinct_timestamps () =
+  Eio_main.run @@ fun env ->
+  with_mock_loki_server env (fun ~port ~body_promise ->
+    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+                 ~url:(Printf.sprintf "http://localhost:%d" port) () in
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "multi" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info "first";
+      Eio.Time.sleep env#clock 0.001;
+      Obs_eio.log sp Obs_eio.Info "second");
+    let body = Eio.Promise.await body_promise in
+    let timestamps =
+      match Yojson.Safe.from_string body with
+      | `Assoc fields ->
+        (match List.assoc_opt "streams" fields with
+         | Some (`List [`Assoc stream]) ->
+           (match List.assoc_opt "values" stream with
+            | Some (`List values) ->
+              List.filter_map (function
+                | `List [`String ts; `String _line] -> Some ts
+                | _ -> None) values
+            | _ -> [])
+         | _ -> [])
+      | _ -> []
+    in
+    match timestamps with
+    | [first; second] ->
+      Alcotest.(check bool) "per-entry timestamps differ" true (first <> second)
+    | _ -> Alcotest.fail "expected two Loki values")
+
 let test_loki_unreachable_does_not_raise () =
   Eio_main.run @@ fun env ->
   (* Point at a port nothing is listening on — should log to stderr and return. *)
@@ -341,6 +391,8 @@ let () =
       test_case "missing selected label is omitted" `Quick test_selected_label_missing_from_context_warns_and_is_omitted;
       test_case "stream label validates names"      `Quick test_stream_label_rejects_invalid_name;
       test_case "multiple log calls all present"   `Quick test_multiple_log_calls;
+      test_case "logfmt field keys are safe"       `Quick test_logfmt_field_keys_are_safe;
+      test_case "log entries get distinct timestamps" `Quick test_log_entries_get_distinct_timestamps;
       test_case "unreachable Loki does not raise"  `Quick test_loki_unreachable_does_not_raise;
       test_case "payload JSON shape"               `Quick test_payload_json_shape;
       test_case "non-2xx response does not raise"  `Quick test_non_2xx_does_not_raise;

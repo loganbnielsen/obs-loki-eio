@@ -2,14 +2,14 @@
 (* HTTP client (cohttp-eio + Uri)                                      *)
 (* ------------------------------------------------------------------ *)
 
-let http_post ~net ~clock ~url ~body =
+let http_post ~net ~clock ~timeout ~headers ~url ~body =
   let push_url = Uri.with_path (Uri.of_string url) "/loki/api/v1/push" in
   let headers =
-    Http.Header.of_list [ ("Content-Type", "application/json") ]
+    Http.Header.of_list ([ ("Content-Type", "application/json") ] @ headers)
   in
   let body_src = Cohttp_eio.Body.of_string body in
   try
-    Eio.Time.with_timeout_exn clock 5.0 (fun () ->
+    Eio.Time.with_timeout_exn clock timeout (fun () ->
       Eio.Switch.run (fun sw ->
         match Obs_loki_tls.https_for_uri push_url with
         | Error error -> Error ("Loki push: " ^ Obs_loki_tls.error_to_string error)
@@ -36,7 +36,7 @@ let http_post ~net ~clock ~url ~body =
             Error (Printf.sprintf "Loki returned HTTP %d%s" code detail)
           end))
   with
-  | Eio.Time.Timeout -> Error "Loki push timed out after 5s"
+  | Eio.Time.Timeout -> Error (Printf.sprintf "Loki push timed out after %gs" timeout)
   | exn              -> Error ("Loki push: " ^ Printexc.to_string exn)
 
 (* ------------------------------------------------------------------ *)
@@ -53,6 +53,24 @@ let logfmt_val s =
 let logfmt pairs =
   String.concat " "
     (List.map (fun (k, v) -> k ^ "=" ^ logfmt_val v) pairs)
+
+let logfmt_key k =
+  let valid = function
+    | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' | '.' | '-' -> true
+    | _ -> false
+  in
+  let s =
+    String.map (fun c -> if valid c then c else '_') k
+  in
+  if s = "" then "field" else s
+
+let logfmt_user_fields fields =
+  let reserved = ["level"; "msg"; "span"; "status"; "trace_id"; "span_id"] in
+  List.map (fun (k, v) ->
+    let k = logfmt_key k in
+    let k = if List.mem k reserved then "field_" ^ k else k in
+    (k, v)
+  ) fields
 
 (* Logfmt fields for trace context, included in the log line body.
    Structured metadata (Loki 3.x 3-element tuples) is incompatible with
@@ -74,11 +92,10 @@ let level_string = function
   | Obs_eio.Warn  -> "warn"
   | Obs_eio.Error -> "error"
 
-(* Wall-clock nanoseconds from the Eio clock as a decimal string —
+(* Wall-clock nanoseconds from the Eio clock, and as a decimal string —
    Loki's timestamp format. *)
-let unix_ns_string clock =
-  Printf.sprintf "%Ld"
-    (Int64.of_float (Eio.Time.now clock *. 1e9))
+let wall_now_ns clock = Int64.of_float (Eio.Time.now clock *. 1e9)
+let unix_ns_string ns = Printf.sprintf "%Ld" ns
 
 (* Stream labels as a JSON object built with Yojson. *)
 let stream_labels_json pairs =
@@ -127,13 +144,13 @@ let selected_stream_labels ~context label_names =
       None
   ) label_names
 
-let create ~net ~clock ~url ?(label_names = []) () : Obs_eio.backend =
+let create ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names = []) () : Obs_eio.backend =
   let emit_span (e : Obs_eio.span_event) =
     let stream_labels =
       ("service", e.service) ::
       selected_stream_labels ~context:e.context label_names
     in
-    let ts       = unix_ns_string clock in
+    let close_wall_ns = wall_now_ns clock in
     let trace_id = trace_id_hex e.trace_ctx.Obs_trace.trace_id in
     let span_id  = span_id_hex  e.trace_ctx.Obs_trace.span_id  in
     let trace    = trace_fields trace_id span_id in
@@ -144,19 +161,23 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs_eio.backend =
         let line = logfmt
           ([("level", "info"); ("span", e.name); ("status", status)] @ trace)
         in
-        [ (ts, line) ]
+        [ (unix_ns_string close_wall_ns, line) ]
       else
         List.map (fun (entry : Obs_eio.log_entry) ->
+          let ts =
+            Int64.sub close_wall_ns (Int64.sub e.end_ns entry.timestamp_ns)
+            |> unix_ns_string
+          in
           let line = logfmt
             ([ ("level", level_string entry.level);
                ("msg", entry.message);
-               ("span", e.name) ] @ entry.fields @ trace)
+               ("span", e.name) ] @ logfmt_user_fields entry.fields @ trace)
           in
           (ts, line)
         ) e.log_entries
     in
     let body = loki_push_body ~stream_labels ~values in
-    (match http_post ~net ~clock ~url ~body with
+    (match http_post ~net ~clock ~timeout ~headers ~url ~body with
      | Ok ()      -> ()
      | Error msg  -> Printf.eprintf "[obs-loki] %s\n%!" msg)
   in

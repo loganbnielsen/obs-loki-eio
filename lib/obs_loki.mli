@@ -1,9 +1,9 @@
 (** Loki HTTP push backend for obs-eio.
 
-    Emits one structured JSON log line per [Obs_eio.log] call made within a span,
+    Emits one structured logfmt line per [Obs_eio.log] call made within a span,
     plus one span-completion line for spans with no [Obs_eio.log] calls. Lines
     are pushed synchronously to Loki's push API when the span closes — one
-    HTTP POST per span, which can block the closing fiber up to the 5s
+    HTTP POST per span, which can block the closing fiber up to the configured
     request timeout. There is no buffering, batching, or backpressure; this
     is the 0.1 behavior, not a temporary gap. If Loki is unreachable or
     returns a non-2xx response, the error is printed to stderr and the call
@@ -11,9 +11,9 @@
     application beyond that one push. [https://] URLs are supported via the
     system CA bundle (see [error_to_string]'s [`No_system_ca_bundle]).
 
-    All log lines in a span share one timestamp, taken when the span closes
-    — not a per-entry timestamp. Long spans or repeated identical lines can
-    therefore have misleading ordering or dedup behavior in Loki.
+    Log lines use wall-clock timestamps derived from each entry's monotonic
+    timestamp and the close-time wall clock. The span-completion fallback line
+    uses the close-time wall clock.
 
     Each pushed value is the Loki 2.x/3.x-compatible 2-element
     [\[timestamp_ns, log_line\]] form, not Loki 3's 3-element structured
@@ -53,9 +53,13 @@ val create
   -> url:string
      (** Base URL of the Loki instance, e.g. ["http://localhost:3100"].
          The push path [/loki/api/v1/push] is appended automatically. *)
+  -> ?timeout:float
+     (** Request timeout in seconds. Default: [5.0]. *)
+  -> ?headers:(string * string) list
+     (** Extra HTTP headers, e.g. auth/proxy headers such as [X-Scope-OrgID]. *)
   -> ?label_names:stream_label list
      (** Context field names to promote to Loki stream labels. Missing context
          fields are logged to stderr and omitted. [service] is always included.
-         Default: [[]]. *)
+         Default: []. *)
   -> unit
   -> Obs_eio.backend
