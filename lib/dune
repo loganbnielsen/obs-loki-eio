@@ -3,4 +3,5 @@
  (public_name obs-loki-eio)
  (wrapped false)
  (modules Obs_loki Obs_loki_tls)
- (libraries obs-eio eio eio.unix unix cohttp-eio uri http yojson tls-eio x509 domain-name ptime))
+ (libraries obs-eio eio eio.unix unix cohttp-eio uri http yojson tls-eio x509 domain-name ptime
+   mirage-crypto-rng.unix))
