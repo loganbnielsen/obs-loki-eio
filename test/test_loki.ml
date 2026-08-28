@@ -348,7 +348,7 @@ let test_live_trace_id_round_trip () =
     let captured_trace_id = ref "" in
     let start_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
     Obs_eio.with_span ot "trace-test" (fun sp ->
-      let ctx = Obs_eio.current_trace_ctx sp in
+      let ctx = Obs_eio.current_trace_context sp in
       let (hi, lo) = ctx.Obs_trace.trace_id in
       captured_trace_id := Printf.sprintf "%016Lx%016Lx" hi lo;
       Obs_eio.log sp Obs_eio.Info "trace-id-check");
