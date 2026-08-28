@@ -43,8 +43,7 @@ let http_post ~net ~clock ~timeout ~headers ~url ~body =
 (* Encoding helpers                                                    *)
 (* ------------------------------------------------------------------ *)
 
-(* Logfmt for log line bodies.
-   Values containing spaces, = or control chars are quoted. *)
+(* Values containing spaces, = or control chars are quoted. *)
 let logfmt_val s =
   let needs_quotes = String.exists
     (fun c -> c = ' ' || c = '=' || c = '"' || c = '\n' || c = '\r') s in
@@ -72,10 +71,7 @@ let logfmt_user_fields fields =
     (k, v)
   ) fields
 
-(* Logfmt fields for trace context, included in the log line body.
-   Structured metadata (Loki 3.x 3-element tuples) is incompatible with
-   Loki 2.x (the loki-stack Helm chart); including trace_id/span_id in
-   the line body keeps them searchable on both versions. *)
+(* trace_id/span_id go in the line body, not structured metadata, so they stay searchable on both Loki 2.x and 3.x. *)
 let trace_fields trace_id span_id =
   [("trace_id", trace_id); ("span_id", span_id)]
 
@@ -92,17 +88,14 @@ let level_string = function
   | Obs_eio.Warn  -> "warn"
   | Obs_eio.Error -> "error"
 
-(* Wall-clock nanoseconds from the Eio clock, and as a decimal string —
-   Loki's timestamp format. *)
+(* Loki expects timestamps as decimal-string nanoseconds. *)
 let wall_now_ns clock = Int64.of_float (Eio.Time.now clock *. 1e9)
 let unix_ns_string ns = Printf.sprintf "%Ld" ns
 
-(* Stream labels as a JSON object built with Yojson. *)
 let stream_labels_json pairs =
   `Assoc (List.map (fun (k, v) -> (k, `String v)) pairs)
 
-(* Each value is a 2-element JSON array [timestamp_ns, log_line],
-   compatible with Loki 2.x (loki-stack Helm chart) and Loki 3.x. *)
+(* [timestamp_ns, log_line] 2-tuples — the Loki 2.x/3.x-compatible value format. *)
 let loki_push_body ~stream_labels ~values =
   let stream_obj = stream_labels_json stream_labels in
   let values_json =
