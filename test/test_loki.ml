@@ -10,10 +10,8 @@
 (* Mock Loki server (cohttp-eio)                                       *)
 (* ------------------------------------------------------------------ *)
 
-(* Spin up a mock Loki server on an ephemeral port.  For each test the
-   server accepts a single POST, captures the body, responds with
-   [status_code], then stops.  The callback [f] receives the port and a
-   promise that resolves with the captured request body. *)
+(* Mock Loki server on an ephemeral port: accepts one POST, captures the
+   body, responds with [status_code], then stops. *)
 let with_mock_loki_server env ?(status_code = 204) f =
   Eio.Switch.run @@ fun sw ->
   let body_p, body_r = Eio.Promise.create () in
@@ -218,7 +216,6 @@ let test_loki_unreachable_does_not_raise () =
                ~url:"http://127.0.0.1:19399" () in
   let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
   Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test")
-  (* If this returns without raising, the test passes. *)
 
 (* Verify the JSON payload has the correct Loki push shape:
    {"streams":[{"stream":{...},"values":[[ts,line],...]}]} *)
@@ -261,7 +258,6 @@ let test_non_2xx_does_not_raise () =
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
     Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test"))
-  (* Must return without raising even though server returned 500. *)
 
 (* Verify that a non-2xx response with a short body is captured without error. *)
 let test_non_2xx_short_body () =
@@ -271,13 +267,11 @@ let test_non_2xx_short_body () =
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
     Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Warn "test"))
-  (* Must return without raising even with short error body. *)
 
 (* ------------------------------------------------------------------ *)
 (* Live Loki tests (require LOKI_URL env var)                         *)
 (* ------------------------------------------------------------------ *)
 
-(* Query Loki's query_range API and return the response body. *)
 let loki_query_range ~net ~url ~query ~start_ns ~end_ns =
   let path =
     Printf.sprintf "/loki/api/v1/query_range?query=%s&start=%s&end=%s&limit=50"
@@ -294,7 +288,6 @@ let loki_query_range ~net ~url ~query ~start_ns ~end_ns =
   in
   Eio.Buf_read.(parse_exn take_all) body ~max_size:(1024 * 1024)
 
-(* Extract log line values from a Loki query response using yojson. *)
 let extract_log_lines json_str =
   match Yojson.Safe.from_string json_str with
   | `Assoc fields ->
@@ -359,9 +352,8 @@ let test_live_trace_id_round_trip () =
       let (hi, lo) = ctx.Obs_trace.trace_id in
       captured_trace_id := Printf.sprintf "%016Lx%016Lx" hi lo;
       Obs_eio.log sp Obs_eio.Info "trace-id-check");
-    (* trace_id is written into the log line body as a logfmt field, not as a
-       stream label. Use "| logfmt" to parse the line before filtering on it.
-       Retry for up to 5s to tolerate Loki ingestion latency under load. *)
+    (* trace_id is a logfmt field in the line body, not a stream label, hence
+       "| logfmt" in the query. Retries up to 5s for ingestion latency. *)
     let query = Printf.sprintf
       "{service=\"%s\"} | logfmt | trace_id=\"%s\""
       unique_service !captured_trace_id in
