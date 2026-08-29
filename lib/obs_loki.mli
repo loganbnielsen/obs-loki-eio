@@ -52,14 +52,16 @@ val create
   -> clock:_ Eio.Time.clock
   -> url:string
      (** Base URL of the Loki instance, e.g. ["http://localhost:3100"].
-         The push path [/loki/api/v1/push] is appended automatically. *)
+         Must be an [http://] or [https://] URL with a host. The push path
+         [/loki/api/v1/push] is appended automatically. *)
   -> ?timeout:float
-     (** Request timeout in seconds. Default: [5.0]. *)
+     (** Request timeout in seconds. Must be positive. Default: [5.0]. *)
   -> ?headers:(string * string) list
      (** Extra HTTP headers, e.g. auth/proxy headers such as [X-Scope-OrgID]. *)
   -> ?label_names:stream_label list
      (** Context field names to promote to Loki stream labels. Missing context
          fields are logged to stderr and omitted. [service] is always included.
-         Default: []. *)
+         Names must be unique and must not include [service]; invalid values
+         raise [Invalid_argument]. Default: []. *)
   -> unit
   -> Obs_eio.backend

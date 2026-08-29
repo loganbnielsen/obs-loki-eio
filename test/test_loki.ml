@@ -59,6 +59,27 @@ let contains s sub =
 
 let local_url port = Printf.sprintf "http://127.0.0.1:%d" port
 
+let push_payload_lines body =
+  match Yojson.Safe.from_string body with
+  | `Assoc fields ->
+    (match List.assoc_opt "streams" fields with
+     | Some (`List streams) ->
+       List.concat_map
+         (function
+           | `Assoc stream ->
+             (match List.assoc_opt "values" stream with
+              | Some (`List values) ->
+                List.filter_map
+                  (function
+                    | `List [ `String _ts; `String line ] -> Some line
+                    | _ -> None)
+                  values
+              | _ -> [])
+           | _ -> [])
+         streams
+     | _ -> [])
+  | _ -> []
+
 (* ------------------------------------------------------------------ *)
 (* Mock server tests                                                   *)
 (* ------------------------------------------------------------------ *)
@@ -144,6 +165,57 @@ let test_stream_label_rejects_invalid_name () =
   | _ -> Alcotest.fail "invalid Loki stream label should raise Invalid_argument"
   | exception Invalid_argument _ -> ()
 
+let test_create_rejects_duplicate_label_names () =
+  Eio_main.run @@ fun env ->
+  match
+    Obs_loki.create
+      ~net:env#net
+      ~clock:env#clock
+      ~url:"http://127.0.0.1:3100"
+      ~label_names:[ Obs_loki.stream_label "env"; Obs_loki.stream_label "env" ]
+      ()
+  with
+  | _ -> Alcotest.fail "duplicate stream labels should raise Invalid_argument"
+  | exception Invalid_argument _ -> ()
+
+let test_create_rejects_service_label_name () =
+  Eio_main.run @@ fun env ->
+  match
+    Obs_loki.create
+      ~net:env#net
+      ~clock:env#clock
+      ~url:"http://127.0.0.1:3100"
+      ~label_names:[ Obs_loki.stream_label "service" ]
+      ()
+  with
+  | _ -> Alcotest.fail "service stream label should raise Invalid_argument"
+  | exception Invalid_argument _ -> ()
+
+let test_create_rejects_invalid_timeout () =
+  Eio_main.run @@ fun env ->
+  match
+    Obs_loki.create
+      ~net:env#net
+      ~clock:env#clock
+      ~url:"http://127.0.0.1:3100"
+      ~timeout:0.
+      ()
+  with
+  | _ -> Alcotest.fail "non-positive timeout should raise Invalid_argument"
+  | exception Invalid_argument _ -> ()
+
+let test_create_rejects_invalid_url () =
+  Eio_main.run @@ fun env ->
+  match
+    Obs_loki.create
+      ~net:env#net
+      ~clock:env#clock
+      ~url:"unix:/tmp/loki.sock"
+      ()
+  with
+  | _ -> Alcotest.fail "non-http URL should raise Invalid_argument"
+  | exception Invalid_argument _ -> ()
+
 let test_multiple_log_calls () =
   Eio_main.run @@ fun env ->
   with_mock_loki_server env (fun ~port ~body_promise ->
@@ -178,6 +250,19 @@ let test_logfmt_field_keys_are_safe () =
       true (contains body "field_trace_id=fake");
     Alcotest.(check bool) "built-in message remains authoritative"
       true (contains body "msg=real-message"))
+
+let test_logfmt_field_values_quote_whitespace () =
+  Eio_main.run @@ fun env ->
+  with_mock_loki_server env (fun ~port ~body_promise ->
+    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+                 ~url:(local_url port) () in
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    Obs_eio.with_span ot "work" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info ~fields:[("tabbed", "a\tb")] "real-message");
+    let body = Eio.Promise.await body_promise in
+    let line = match push_payload_lines body with [line] -> line | _ -> "" in
+    Alcotest.(check bool) "tabbed value is quoted"
+      true (contains line "tabbed=\"a\\tb\""))
 
 let test_log_entries_get_distinct_timestamps () =
   Eio_main.run @@ fun env ->
@@ -384,8 +469,13 @@ let () =
       test_case "context fields become labels"     `Quick test_context_fields_become_labels;
       test_case "missing selected label is omitted" `Quick test_selected_label_missing_from_context_warns_and_is_omitted;
       test_case "stream label validates names"      `Quick test_stream_label_rejects_invalid_name;
+      test_case "duplicate stream labels rejected"  `Quick test_create_rejects_duplicate_label_names;
+      test_case "service stream label rejected"     `Quick test_create_rejects_service_label_name;
+      test_case "invalid timeout rejected"          `Quick test_create_rejects_invalid_timeout;
+      test_case "invalid URL rejected"              `Quick test_create_rejects_invalid_url;
       test_case "multiple log calls all present"   `Quick test_multiple_log_calls;
       test_case "logfmt field keys are safe"       `Quick test_logfmt_field_keys_are_safe;
+      test_case "logfmt quotes whitespace values"  `Quick test_logfmt_field_values_quote_whitespace;
       test_case "log entries get distinct timestamps" `Quick test_log_entries_get_distinct_timestamps;
       test_case "unreachable Loki does not raise"  `Quick test_loki_unreachable_does_not_raise;
       test_case "payload JSON shape"               `Quick test_payload_json_shape;
