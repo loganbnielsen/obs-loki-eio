@@ -37,6 +37,7 @@ let http_post ~net ~clock ~timeout ~headers ~url ~body =
           end))
   with
   | Eio.Time.Timeout -> Error (Printf.sprintf "Loki push timed out after %gs" timeout)
+  | Eio.Cancel.Cancelled _ as exn -> raise exn
   | exn              -> Error ("Loki push: " ^ Printexc.to_string exn)
 
 (* ------------------------------------------------------------------ *)
@@ -46,7 +47,7 @@ let http_post ~net ~clock ~timeout ~headers ~url ~body =
 (* Values containing spaces, = or control chars are quoted. *)
 let logfmt_val s =
   let needs_quotes = String.exists
-    (fun c -> c = ' ' || c = '=' || c = '"' || c = '\n' || c = '\r') s in
+    (fun c -> c = '=' || c = '"' || Char.code c <= 0x20 || Char.code c = 0x7f) s in
   if needs_quotes then Printf.sprintf "%S" s else s
 
 let logfmt pairs =
@@ -125,6 +126,28 @@ let stream_label = Obs_eio.label_name
 
 let stream_label_to_string = Obs_eio.label_name_to_string
 
+let validate_label_names label_names =
+  let names = List.map stream_label_to_string label_names in
+  if List.mem "service" names then
+    invalid_arg "Obs_loki.create: label_names must not include reserved label \"service\"";
+  let seen = Hashtbl.create (List.length names) in
+  List.iter
+    (fun name ->
+      if Hashtbl.mem seen name then
+        invalid_arg (Printf.sprintf "Obs_loki.create: duplicate stream label %S" name);
+      Hashtbl.add seen name ())
+    names;
+  label_names
+
+let validate_url url =
+  let uri = Uri.of_string url in
+  let scheme = Uri.scheme uri |> Option.map String.lowercase_ascii in
+  (match scheme with
+   | Some "http" | Some "https" -> ()
+   | _ -> invalid_arg "Obs_loki.create: url must use http:// or https://");
+  if Uri.host uri = None then
+    invalid_arg "Obs_loki.create: url must include a host"
+
 let selected_stream_labels ~context label_names =
   List.filter_map (fun label_name ->
     let name = stream_label_to_string label_name in
@@ -138,6 +161,10 @@ let selected_stream_labels ~context label_names =
   ) label_names
 
 let create ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names = []) () : Obs_eio.backend =
+  if timeout <= 0. || classify_float timeout = FP_nan then
+    invalid_arg "Obs_loki.create: timeout must be positive";
+  validate_url url;
+  let label_names = validate_label_names label_names in
   let emit_span (e : Obs_eio.span_event) =
     let stream_labels =
       ("service", e.service) ::

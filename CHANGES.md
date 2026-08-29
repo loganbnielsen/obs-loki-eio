@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+- `create` now rejects duplicate promoted stream labels and the reserved
+  `service` label name up front, preventing duplicate keys in Loki stream
+  label JSON.
+
 ## 0.1.0
 
 - Initial standalone OPAM package: `obs-eio` Loki push backend with logfmt span
