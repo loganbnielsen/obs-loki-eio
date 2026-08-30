@@ -29,7 +29,10 @@ let http_post ~net ~clock ~timeout ~headers ~url ~body =
               try
                 Eio.Buf_read.of_flow ~max_size:(64 * 1024) resp_body
                 |> Eio.Buf_read.take_all
-              with _ -> ""
+              with
+              | Eio.Cancel.Cancelled _ as exn -> raise exn
+              | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+              | _ -> ""
             in
             let truncated = String.sub raw 0 (min (String.length raw) 512) in
             let detail = if truncated = "" then "" else ": " ^ String.trim truncated in
@@ -38,6 +41,7 @@ let http_post ~net ~clock ~timeout ~headers ~url ~body =
   with
   | Eio.Time.Timeout -> Error (Printf.sprintf "Loki push timed out after %gs" timeout)
   | Eio.Cancel.Cancelled _ as exn -> raise exn
+  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
   | exn              -> Error ("Loki push: " ^ Printexc.to_string exn)
 
 (* ------------------------------------------------------------------ *)
