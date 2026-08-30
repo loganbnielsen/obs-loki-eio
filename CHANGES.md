@@ -5,6 +5,8 @@
 - `create` now rejects duplicate promoted stream labels and the reserved
   `service` label name up front, preventing duplicate keys in Loki stream
   label JSON.
+- Missing promoted stream labels now warn once per backend instance instead
+  of once per emitted span.
 
 ## 0.1.0
 
