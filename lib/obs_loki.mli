@@ -9,7 +9,8 @@
     returns a non-2xx response, the error is printed to stderr and the call
     returns normally — the observability backend never crashes or blocks the
     application beyond that one push. [https://] URLs are supported via the
-    system CA bundle (see [error_to_string]'s [`No_system_ca_bundle]).
+    system CA bundle; TLS-setup failures surface as [Https_eio.error] and
+    are converted to a stderr line, same as any other push failure.
 
     Log lines use wall-clock timestamps derived from each entry's monotonic
     timestamp and the close-time wall clock. The span-completion fallback line
