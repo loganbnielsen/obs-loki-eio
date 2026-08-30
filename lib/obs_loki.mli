@@ -60,8 +60,9 @@ val create
      (** Extra HTTP headers, e.g. auth/proxy headers such as [X-Scope-OrgID]. *)
   -> ?label_names:stream_label list
      (** Context field names to promote to Loki stream labels. Missing context
-         fields are logged to stderr and omitted. [service] is always included.
-         Names must be unique and must not include [service]; invalid values
-         raise [Invalid_argument]. Default: []. *)
+         fields are logged to stderr once per backend instance and omitted.
+         [service] is always included. Names must be unique and must not
+         include [service]; invalid values raise [Invalid_argument].
+         Default: []. *)
   -> unit
   -> Obs_eio.backend
