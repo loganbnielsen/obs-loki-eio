@@ -148,15 +148,20 @@ let validate_url url =
   if Uri.host uri = None then
     invalid_arg "Obs_loki.create: url must include a host"
 
-let selected_stream_labels ~context label_names =
+let selected_stream_labels ~warn_mutex ~warned_missing_labels ~context label_names =
   List.filter_map (fun label_name ->
     let name = stream_label_to_string label_name in
     match List.assoc_opt name context with
     | Some value -> Some (name, value)
     | None ->
-      Printf.eprintf
-        "[obs-loki] requested stream label %S missing from context\n%!"
-        name;
+      Mutex.lock warn_mutex;
+      Fun.protect ~finally:(fun () -> Mutex.unlock warn_mutex) (fun () ->
+        if not (Hashtbl.mem warned_missing_labels name) then begin
+          Hashtbl.add warned_missing_labels name ();
+          Printf.eprintf
+            "[obs-loki] requested stream label %S missing from context\n%!"
+            name
+        end);
       None
   ) label_names
 
@@ -165,10 +170,12 @@ let create ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names = [])
     invalid_arg "Obs_loki.create: timeout must be positive";
   validate_url url;
   let label_names = validate_label_names label_names in
+  let warn_mutex = Mutex.create () in
+  let warned_missing_labels = Hashtbl.create (List.length label_names) in
   let emit_span (e : Obs_eio.span_event) =
     let stream_labels =
       ("service", e.service) ::
-      selected_stream_labels ~context:e.context label_names
+      selected_stream_labels ~warn_mutex ~warned_missing_labels ~context:e.context label_names
     in
     let close_wall_ns = wall_now_ns clock in
     let trace_id = trace_id_hex e.trace_ctx.Obs_trace.trace_id in

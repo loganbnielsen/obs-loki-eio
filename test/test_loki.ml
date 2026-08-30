@@ -57,6 +57,49 @@ let contains s sub =
     go 0
   end
 
+let count_occurrences s sub =
+  let ls = String.length s and lp = String.length sub in
+  if lp = 0 then 0
+  else
+    let rec go i acc =
+      if i > ls - lp then acc
+      else if String.sub s i lp = sub then go (i + lp) (acc + 1)
+      else go (i + 1) acc
+    in
+    go 0 0
+
+let capture_stderr f =
+  let old_stderr = Unix.dup Unix.stderr in
+  let read_fd, write_fd = Unix.pipe () in
+  Unix.dup2 write_fd Unix.stderr;
+  Unix.close write_fd;
+  let restored = ref false in
+  let restore () =
+    if not !restored then begin
+      Unix.dup2 old_stderr Unix.stderr;
+      Unix.close old_stderr;
+      restored := true
+    end
+  in
+  match f () with
+  | result ->
+    flush stderr;
+    restore ();
+    let ic = Unix.in_channel_of_descr read_fd in
+    let buf = Buffer.create 128 in
+    (try
+       while true do
+         Buffer.add_string buf (input_line ic);
+         Buffer.add_char buf '\n'
+       done
+     with End_of_file -> ());
+    close_in ic;
+    (result, Buffer.contents buf)
+  | exception exn ->
+    restore ();
+    Unix.close read_fd;
+    raise exn
+
 let local_url port = Printf.sprintf "http://127.0.0.1:%d" port
 
 let push_payload_lines body =
@@ -159,6 +202,23 @@ let test_selected_label_missing_from_context_warns_and_is_omitted () =
       (contains body "\"env\":\"prod\"");
     Alcotest.(check bool) "missing label omitted" false
       (contains body "\"region\""))
+
+let test_missing_selected_label_warns_once () =
+  Eio_main.run @@ fun env ->
+  let (_result, err) =
+    capture_stderr (fun () ->
+      with_mock_loki_server env (fun ~port ~body_promise:_ ->
+        let loki =
+          Obs_loki.create ~net:env#net ~clock:env#clock
+            ~url:(local_url port)
+            ~label_names:[ Obs_loki.stream_label "region" ] ()
+        in
+        let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+        Obs_eio.with_span ot "op-1" (fun _sp -> ());
+        Obs_eio.with_span ot "op-2" (fun _sp -> ())))
+  in
+  Alcotest.(check int) "one warning for the missing label" 1
+    (count_occurrences err {|requested stream label "region" missing from context|})
 
 let test_stream_label_rejects_invalid_name () =
   match Obs_loki.stream_label "bad-label" with
@@ -468,6 +528,7 @@ let () =
       test_case "span name in push body"           `Quick test_span_name_in_payload;
       test_case "context fields become labels"     `Quick test_context_fields_become_labels;
       test_case "missing selected label is omitted" `Quick test_selected_label_missing_from_context_warns_and_is_omitted;
+      test_case "missing selected label warns once" `Quick test_missing_selected_label_warns_once;
       test_case "stream label validates names"      `Quick test_stream_label_rejects_invalid_name;
       test_case "duplicate stream labels rejected"  `Quick test_create_rejects_duplicate_label_names;
       test_case "service stream label rejected"     `Quick test_create_rejects_service_label_name;
