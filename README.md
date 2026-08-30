@@ -100,7 +100,7 @@ let loki = Obs_loki.create ~net:env#net ~clock:env#clock
              ~label_names:[Obs_loki.stream_label "env";
                            Obs_loki.stream_label "region"] () in
 let ot = Obs_eio.create ~service:"payments-worker"
-           ~mono_clock:env#mono_clock ~backend:loki in
+           ~mono_clock:env#mono_clock ~backend:loki () in
 let ot = Obs_eio.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
 ```
 
