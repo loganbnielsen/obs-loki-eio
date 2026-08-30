@@ -22,13 +22,13 @@ let http_post ~net ~clock ~timeout ~headers ~url ~body =
           if code >= 200 && code < 300 then begin
             (* Drain body to avoid connection-level warnings. *)
             ignore (Eio.Buf_read.of_flow ~max_size:(64 * 1024) resp_body
-                    |> Eio.Buf_read.take_while (fun _ -> true));
+                    |> Eio.Buf_read.take_all);
             Ok ()
           end else begin
             let raw =
               try
                 Eio.Buf_read.of_flow ~max_size:(64 * 1024) resp_body
-                |> Eio.Buf_read.take_while (fun _ -> true)
+                |> Eio.Buf_read.take_all
               with _ -> ""
             in
             let truncated = String.sub raw 0 (min (String.length raw) 512) in
