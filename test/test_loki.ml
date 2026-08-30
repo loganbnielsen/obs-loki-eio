@@ -213,7 +213,7 @@ let test_missing_selected_label_warns_once () =
             ~url:(local_url port)
             ~label_names:[ Obs_loki.stream_label "region" ] ()
         in
-        let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+        let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
         Obs_eio.with_span ot "op-1" (fun _sp -> ());
         Obs_eio.with_span ot "op-2" (fun _sp -> ())))
   in
