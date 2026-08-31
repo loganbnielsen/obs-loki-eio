@@ -3,4 +3,4 @@
  (public_name obs-loki-eio)
  (wrapped false)
  (modules Obs_loki)
- (libraries obs-eio eio eio.unix unix cohttp-eio uri http yojson https-eio))
+ (libraries obs-eio eio eio.unix unix uri yojson https-eio))
