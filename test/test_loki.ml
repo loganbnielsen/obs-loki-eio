@@ -354,13 +354,22 @@ let test_log_entries_get_distinct_timestamps () =
       Alcotest.(check bool) "per-entry timestamps differ" true (first <> second)
     | _ -> Alcotest.fail "expected two Loki values")
 
-let test_loki_unreachable_does_not_raise () =
+let test_loki_unreachable_reports_backend_error () =
   Eio_main.run @@ fun env ->
-  (* Point at a port nothing is listening on — should log to stderr and return. *)
+  let reported = ref None in
   let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                ~url:"http://127.0.0.1:19399" () in
-  let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
-  Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test")
+  let ot =
+    Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki
+      ~on_backend_error:(fun op exn -> reported := Some (op, Printexc.to_string exn))
+      ()
+  in
+  Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test");
+  match !reported with
+  | Some (Obs_eio.Emit_span { name }, msg) ->
+    Alcotest.(check string) "span name" "op" name;
+    Alcotest.(check bool) "loki failure reported" true (contains msg "Loki push")
+  | _ -> Alcotest.fail "expected Loki push failure to reach on_backend_error"
 
 (* Verify the JSON payload has the correct Loki push shape:
    {"streams":[{"stream":{...},"values":[[ts,line],...]}]} *)
@@ -395,23 +404,41 @@ let test_payload_json_shape () =
         | _ -> Alcotest.(check bool) "streams is non-empty list" true false)
      | _ -> Alcotest.(check bool) "top-level is object" true false))
 
-(* Verify that a non-2xx response is swallowed (logged to stderr, not raised). *)
-let test_non_2xx_does_not_raise () =
+let test_non_2xx_reports_backend_error () =
   Eio_main.run @@ fun env ->
   with_mock_loki_server env ~status_code:500 (fun ~port ~body_promise:_ ->
+    let reported = ref None in
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
-    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
-    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test"))
+    let ot =
+      Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki
+        ~on_backend_error:(fun op exn -> reported := Some (op, Printexc.to_string exn))
+        ()
+    in
+    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test");
+    match !reported with
+    | Some (Obs_eio.Emit_span { name }, msg) ->
+      Alcotest.(check string) "span name" "op" name;
+      Alcotest.(check bool) "status reported" true (contains msg "Loki returned HTTP 500")
+    | _ -> Alcotest.fail "expected non-2xx Loki response to reach on_backend_error")
 
-(* Verify that a non-2xx response with a short body is captured without error. *)
-let test_non_2xx_short_body () =
+let test_non_2xx_short_body_reports_backend_error () =
   Eio_main.run @@ fun env ->
   with_mock_loki_server env ~status_code:400 (fun ~port ~body_promise:_ ->
+    let reported = ref None in
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
-    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
-    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Warn "test"))
+    let ot =
+      Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki
+        ~on_backend_error:(fun op exn -> reported := Some (op, Printexc.to_string exn))
+        ()
+    in
+    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Warn "test");
+    match !reported with
+    | Some (Obs_eio.Emit_span { name }, msg) ->
+      Alcotest.(check string) "span name" "op" name;
+      Alcotest.(check bool) "status reported" true (contains msg "Loki returned HTTP 400")
+    | _ -> Alcotest.fail "expected non-2xx Loki response to reach on_backend_error")
 
 (* ------------------------------------------------------------------ *)
 (* Live Loki tests (require LOKI_URL env var)                         *)
@@ -538,10 +565,10 @@ let () =
       test_case "logfmt field keys are safe"       `Quick test_logfmt_field_keys_are_safe;
       test_case "logfmt quotes whitespace values"  `Quick test_logfmt_field_values_quote_whitespace;
       test_case "log entries get distinct timestamps" `Quick test_log_entries_get_distinct_timestamps;
-      test_case "unreachable Loki does not raise"  `Quick test_loki_unreachable_does_not_raise;
+      test_case "unreachable Loki reports backend error" `Quick test_loki_unreachable_reports_backend_error;
       test_case "payload JSON shape"               `Quick test_payload_json_shape;
-      test_case "non-2xx response does not raise"  `Quick test_non_2xx_does_not_raise;
-      test_case "non-2xx short body does not raise"`Quick test_non_2xx_short_body;
+      test_case "non-2xx response reports backend error" `Quick test_non_2xx_reports_backend_error;
+      test_case "non-2xx short body reports backend error" `Quick test_non_2xx_short_body_reports_backend_error;
     ];
     "live", [
       test_case "log line ingested and queryable"  `Slow test_live_ingestion;
