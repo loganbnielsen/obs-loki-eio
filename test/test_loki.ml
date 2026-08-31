@@ -176,8 +176,8 @@ let test_context_fields_become_labels () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(local_url port)
-                 ~label_names:[Obs_loki.stream_label "env";
-                               Obs_loki.stream_label "region"] () in
+                 ~label_names:[Obs_loki.stream_label_exn "env";
+                               Obs_loki.stream_label_exn "region"] () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     let ot = Obs_eio.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
     Obs_eio.with_span ot "op" (fun _sp -> ());
@@ -192,8 +192,8 @@ let test_selected_label_missing_from_context_warns_and_is_omitted () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(local_url port)
-                 ~label_names:[Obs_loki.stream_label "env";
-                               Obs_loki.stream_label "region"] () in
+                 ~label_names:[Obs_loki.stream_label_exn "env";
+                               Obs_loki.stream_label_exn "region"] () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     let ot = Obs_eio.with_context ot [("env", "prod")] in
     Obs_eio.with_span ot "op" (fun _sp -> ());
@@ -211,7 +211,7 @@ let test_missing_selected_label_warns_once () =
         let loki =
           Obs_loki.create ~net:env#net ~clock:env#clock
             ~url:(local_url port)
-            ~label_names:[ Obs_loki.stream_label "region" ] ()
+            ~label_names:[ Obs_loki.stream_label_exn "region" ] ()
         in
         let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
         Obs_eio.with_span ot "op-1" (fun _sp -> ());
@@ -222,6 +222,11 @@ let test_missing_selected_label_warns_once () =
 
 let test_stream_label_rejects_invalid_name () =
   match Obs_loki.stream_label "bad-label" with
+  | Ok _ -> Alcotest.fail "invalid Loki stream label should be rejected"
+  | Error _ -> ()
+
+let test_stream_label_exn_rejects_invalid_name () =
+  match Obs_loki.stream_label_exn "bad-label" with
   | _ -> Alcotest.fail "invalid Loki stream label should raise Invalid_argument"
   | exception Invalid_argument _ -> ()
 
@@ -232,7 +237,7 @@ let test_create_rejects_duplicate_label_names () =
       ~net:env#net
       ~clock:env#clock
       ~url:"http://127.0.0.1:3100"
-      ~label_names:[ Obs_loki.stream_label "env"; Obs_loki.stream_label "env" ]
+      ~label_names:[ Obs_loki.stream_label_exn "env"; Obs_loki.stream_label_exn "env" ]
       ()
   with
   | _ -> Alcotest.fail "duplicate stream labels should raise Invalid_argument"
@@ -245,7 +250,7 @@ let test_create_rejects_service_label_name () =
       ~net:env#net
       ~clock:env#clock
       ~url:"http://127.0.0.1:3100"
-      ~label_names:[ Obs_loki.stream_label "service" ]
+      ~label_names:[ Obs_loki.stream_label_exn "service" ]
       ()
   with
   | _ -> Alcotest.fail "service stream label should raise Invalid_argument"
@@ -557,6 +562,7 @@ let () =
       test_case "missing selected label is omitted" `Quick test_selected_label_missing_from_context_warns_and_is_omitted;
       test_case "missing selected label warns once" `Quick test_missing_selected_label_warns_once;
       test_case "stream label validates names"      `Quick test_stream_label_rejects_invalid_name;
+      test_case "stream label_exn validates names"  `Quick test_stream_label_exn_rejects_invalid_name;
       test_case "duplicate stream labels rejected"  `Quick test_create_rejects_duplicate_label_names;
       test_case "service stream label rejected"     `Quick test_create_rejects_service_label_name;
       test_case "invalid timeout rejected"          `Quick test_create_rejects_invalid_timeout;
