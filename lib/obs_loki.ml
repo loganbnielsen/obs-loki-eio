@@ -3,46 +3,20 @@
 (* ------------------------------------------------------------------ *)
 
 let http_post ~net ~clock ~timeout ~headers ~url ~body =
-  let push_url = Uri.with_path (Uri.of_string url) "/loki/api/v1/push" in
-  let headers =
-    Http.Header.of_list ([ ("Content-Type", "application/json") ] @ headers)
+  let push_url =
+    Uri.with_path (Uri.of_string url) "/loki/api/v1/push" |> Uri.to_string
   in
-  let body_src = Cohttp_eio.Body.of_string body in
-  try
-    Eio.Time.with_timeout_exn clock timeout (fun () ->
-      Eio.Switch.run (fun sw ->
-        match Https_eio.https_for_uri push_url with
-        | Error error -> Error ("Loki push: " ^ Https_eio.error_to_string error)
-        | Ok https ->
-          let client = Cohttp_eio.Client.make ~https net in
-          let (resp, resp_body) =
-            Cohttp_eio.Client.post client ~sw ~headers ~body:body_src push_url
-          in
-          let code = Http.Status.to_int (Http.Response.status resp) in
-          if code >= 200 && code < 300 then begin
-            (* Drain body to avoid connection-level warnings. *)
-            ignore (Eio.Buf_read.of_flow ~max_size:(64 * 1024) resp_body
-                    |> Eio.Buf_read.take_all);
-            Ok ()
-          end else begin
-            let raw =
-              try
-                Eio.Buf_read.of_flow ~max_size:(64 * 1024) resp_body
-                |> Eio.Buf_read.take_all
-              with
-              | Eio.Cancel.Cancelled _ as exn -> raise exn
-              | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-              | _ -> ""
-            in
-            let truncated = String.sub raw 0 (min (String.length raw) 512) in
-            let detail = if truncated = "" then "" else ": " ^ String.trim truncated in
-            Error (Printf.sprintf "Loki returned HTTP %d%s" code detail)
-          end))
+  let headers = ("Content-Type", "application/json") :: headers in
+  match
+    Https_eio.request ~net ~clock ~timeout ~meth:`POST ~url:push_url ~headers ~body
+      ~max_response_bytes:(64 * 1024) ()
   with
-  | Eio.Time.Timeout -> Error (Printf.sprintf "Loki push timed out after %gs" timeout)
-  | Eio.Cancel.Cancelled _ as exn -> raise exn
-  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-  | exn              -> Error ("Loki push: " ^ Printexc.to_string exn)
+  | Ok (code, _body) when code >= 200 && code < 300 -> Ok ()
+  | Ok (code, body) ->
+    let truncated = String.sub body 0 (min (String.length body) 512) in
+    let detail = if truncated = "" then "" else ": " ^ String.trim truncated in
+    Error (Printf.sprintf "Loki returned HTTP %d%s" code detail)
+  | Error e -> Error ("Loki push: " ^ Https_eio.request_error_to_string e)
 
 (* ------------------------------------------------------------------ *)
 (* Encoding helpers                                                    *)
