@@ -108,9 +108,11 @@ Resulting stream: `{service="payments-worker", env="prod", region="eu-west-1"}`
 
 ## Error Handling
 
-If Loki is unreachable or returns a non-2xx status, the error is printed to stderr and
-`emit_span` returns normally. The backend never raises — a Loki outage does not affect
-the application.
+If Loki is unreachable or returns a non-2xx status, the backend raises an ordinary
+backend exception from `emit_span`. When used through `Obs_eio.create`, that exception
+is caught and sent to the handle's `on_backend_error` hook (stderr by default), so a
+Loki outage does not affect application control flow. Calling the raw backend directly
+is intentionally lower level and will see the exception.
 
 ## Timestamps
 
@@ -122,7 +124,7 @@ the span close time.
 
 `https://` URLs are supported: the client authenticates against the system CA bundle
 via `https-eio`/`ca-certs` and refuses to connect without certificate verification. TLS
-setup failures are reported through `Https_eio.error_to_string`.
+setup failures follow the same `Obs_eio` backend-error path.
 
 ## Buffering and Backpressure
 

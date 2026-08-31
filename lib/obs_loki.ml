@@ -210,6 +210,6 @@ let create ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names = [])
     let body = loki_push_body ~stream_labels ~values in
     (match http_post ~net ~clock ~timeout ~headers ~url ~body with
      | Ok ()      -> ()
-     | Error msg  -> Printf.eprintf "[obs-loki] %s\n%!" msg)
+     | Error msg  -> raise (Failure msg))
   in
   { Obs_eio.emit_span; emit_metric = (fun _ -> ()); declare_metric = (fun _ -> ()) }
