@@ -31,8 +31,8 @@
       let loki =
         Obs_loki.create ~net:env#net ~clock:env#clock
           ~url:"http://localhost:3100"
-          ~label_names:[Obs_loki.stream_label "env";
-                        Obs_loki.stream_label "region"] () in
+          ~label_names:[Obs_loki.stream_label_exn "env";
+                        Obs_loki.stream_label_exn "region"] () in
       let ot =
         Obs_eio.create ~service:"payments-worker"
           ~mono_clock:env#mono_clock ~backend:loki in
@@ -44,10 +44,14 @@
 type stream_label = Obs_eio.label_name
 (** Validated context field name that can be promoted to a Loki stream label. *)
 
-val stream_label : string -> stream_label
-(** [stream_label name] validates [name] with [Obs_eio.label_name] and returns a
-    typed Loki stream-label selector. Raises [Invalid_argument] on invalid
-    names. *)
+val stream_label : string -> (stream_label, string) result
+(** [stream_label name] validates [name] with [Obs_eio.label_name] and returns
+    a typed Loki stream-label selector, or [Error _] on invalid names. *)
+
+val stream_label_exn : string -> stream_label
+(** Like [stream_label], but raises [Invalid_argument] instead of returning
+    [Error]. Intended for static label-name literals (a source-code
+    constant, as in the example above), not runtime data. *)
 
 val create
   :  net:_ Eio.Net.t

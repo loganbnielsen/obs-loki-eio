@@ -127,6 +127,7 @@ let loki_push_body ~stream_labels ~values =
 type stream_label = Obs_eio.label_name
 
 let stream_label = Obs_eio.label_name
+let stream_label_exn = Obs_eio.label_name_exn
 
 let stream_label_to_string = Obs_eio.label_name_to_string
 
