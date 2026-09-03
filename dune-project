@@ -18,7 +18,7 @@ Loki backend for obs-eio's Obs_eio.backend interface.")
  (source (github loganbnielsen/obs-loki-eio))
  (depends
   (ocaml (>= 5.4.0))
-  (obs-eio (>= 0.1.0))
+  (obs-eio (>= 0.1.1))
   (eio (>= 1.3))
   (eio_main (and (>= 1.3) :with-test))
   (cohttp-eio (and (>= 6.2.0) :with-test))
