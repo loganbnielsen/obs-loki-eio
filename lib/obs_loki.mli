@@ -88,8 +88,9 @@ val backend : t -> Obs_eio.backend
 
 val flush : ?timeout:float -> t -> unit
 (** Push everything queued now, and wait for pushes already in flight, for at
-    most [timeout] seconds (default [5.0]). Returns early once nothing is left.
-    Call it before a process exits. *)
+    most [timeout] seconds (default [5.0]) -- a hard bound: a push still running
+    at the deadline is abandoned and its lines reported lost. Returns early once
+    nothing is left. Call it before a process exits. *)
 
 val dropped : t -> int
 (** Spans dropped so far because the queue was full. *)

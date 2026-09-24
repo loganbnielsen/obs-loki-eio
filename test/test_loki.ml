@@ -482,6 +482,21 @@ let test_emit_does_not_wait_for_loki () =
     let dt = Unix.gettimeofday () -. t0 in
     Alcotest.(check bool) (Printf.sprintf "5 spans closed in %.2fs" dt) true (dt < 0.5))
 
+(* [flush]'s timeout is a hard bound, even against a Loki that never answers
+   and a request timeout far longer than it. *)
+let test_flush_timeout_is_a_hard_bound () =
+  Eio_main.run @@ fun env ->
+  with_black_hole env (fun url ->
+    Eio.Switch.run @@ fun sw ->
+    let loki = Obs_loki.create ~sw ~net:env#net ~clock:env#clock ~url ~timeout:30.0 () in
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock
+               ~backend:(Obs_loki.backend loki) () in
+    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "x");
+    let t0 = Unix.gettimeofday () in
+    let (), _ = capture_stderr (fun () -> Obs_loki.flush ~timeout:0.3 loki) in
+    let dt = Unix.gettimeofday () -. t0 in
+    Alcotest.(check bool) (Printf.sprintf "flush returned after %.2fs" dt) true (dt < 1.0))
+
 let test_overflow_drops_oldest () =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
@@ -560,13 +575,15 @@ let test_live_ingestion () =
     Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
     let unique_service = Printf.sprintf "loki-e2e-test-%d" (int_of_float (Unix.gettimeofday ())) in
-    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
+    let exporter = Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:loki_url () in
+    let loki = Obs_loki.backend exporter in
     let ot = Obs_eio.create ~service:unique_service
                ~mono_clock:env#mono_clock ~backend:loki () in
     let start_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
     Obs_eio.with_span ot "e2e-span" (fun sp ->
       Obs_eio.log sp Obs_eio.Info ~fields:[("check", "ingestion")] "loki-e2e-marker");
+    Obs_loki.flush exporter;
     Eio.Time.sleep env#clock 0.5;
     let end_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
     let query = Printf.sprintf "{service=\"%s\"}" unique_service in
@@ -585,8 +602,9 @@ let test_live_trace_id_round_trip () =
     Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
     let unique_service = Printf.sprintf "loki-trace-test-%d" (int_of_float (Unix.gettimeofday ())) in
-    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
+    let exporter = Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:loki_url () in
+    let loki = Obs_loki.backend exporter in
     let ot = Obs_eio.create ~service:unique_service
                ~mono_clock:env#mono_clock ~backend:loki () in
     let captured_trace_id = ref "" in
@@ -605,6 +623,7 @@ let test_live_trace_id_round_trip () =
     let end_ns = ref Int64.zero in
     let lines = ref [] in
     while !lines = [] && Unix.gettimeofday () < deadline do
+      Obs_loki.flush exporter;
       Eio.Time.sleep env#clock 0.5;
       end_ns := Int64.of_float (Unix.gettimeofday () *. 1e9);
       let resp = loki_query_range ~net:env#net ~url:loki_url
@@ -641,6 +660,7 @@ let () =
       test_case "unreachable Loki reports backend error" `Quick test_loki_unreachable_reports_backend_error;
       test_case "emit does not wait for Loki" `Quick test_emit_does_not_wait_for_loki;
       test_case "overflow drops the oldest" `Quick test_overflow_drops_oldest;
+      test_case "flush timeout is a hard bound" `Quick test_flush_timeout_is_a_hard_bound;
       test_case "flush pushes everything queued" `Quick test_flush_pushes_everything_queued;
       test_case "payload JSON shape"               `Quick test_payload_json_shape;
       test_case "non-2xx response reports backend error" `Quick test_non_2xx_reports_backend_error;

@@ -206,6 +206,11 @@ let create ~sw ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names =
         lines msg (Atomic.get dropped)
     end
   in
+  let report_timeout batch =
+    report_failure
+      ~lines:(List.fold_left (fun n (_, v) -> n + List.length v) 0 batch)
+      "flush deadline reached"
+  in
   let push batch =
     Fun.protect ~finally:(fun () -> Atomic.decr in_flight) (fun () ->
       match http_post ~net ~clock ~timeout ~headers ~url ~body:(loki_batch_body batch) with
@@ -224,15 +229,23 @@ let create ~sw ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names =
     | batch -> push batch; drain ()
   in
   Eio.Fiber.fork_daemon ~sw (fun () -> drain ());
+  (* [timeout] is a hard bound: a push still running at the deadline is
+     cancelled (its batch is lost and reported), so a caller can size it to a
+     shutdown grace period. *)
   let flush timeout =
     let deadline = Eio.Time.now clock +. timeout in
     let rec go () =
-      match take_batch () with
-      | [] ->
-        if Atomic.get in_flight > 0 && Eio.Time.now clock < deadline then begin
-          Eio.Time.sleep clock 0.01; go ()
-        end
-      | batch -> push batch; if Eio.Time.now clock < deadline then go ()
+      let remaining = deadline -. Eio.Time.now clock in
+      if remaining > 0. then
+        match take_batch () with
+        | [] ->
+          if Atomic.get in_flight > 0 then begin
+            Eio.Time.sleep clock (Float.min 0.01 remaining); go ()
+          end
+        | batch ->
+          (match Eio.Time.with_timeout clock remaining (fun () -> push batch; Ok ()) with
+           | Ok () -> go ()
+           | Error `Timeout -> report_timeout batch)
     in
     go ()
   in
