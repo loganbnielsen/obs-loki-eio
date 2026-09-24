@@ -1,6 +1,22 @@
 # Changes
 
-## Unreleased
+## 0.2.0
+
+- **Asynchronous export (breaking).** `create` takes `~sw` and returns a `t`;
+  `backend t` is the `Obs_eio` backend. Closing a span only enqueues its lines; a
+  background fiber pushes them in batches (`?max_batch`, default 500). A slow or
+  unreachable Loki no longer blocks the fiber that closed the span for up to the
+  request timeout (Sol OBS-048 / FND-0051: a black-holed Loki made every log call
+  take 5 s).
+- The queue is bounded (`?max_queued`, default 10 000 spans). On overflow the oldest
+  queued span is dropped and counted (`dropped t`).
+- A failed push loses its batch and is reported on stderr (rate-limited to once per
+  10 s). It no longer raises from `emit_span`, so `on_backend_error` no longer sees
+  it.
+- `flush ?timeout t` pushes everything queued and waits for in-flight pushes. Call it
+  before a short-lived process exits.
+
+## Unreleased (pre-0.2)
 
 - `create` now rejects duplicate promoted stream labels and the reserved
   `service` label name up front, preventing duplicate keys in Loki stream

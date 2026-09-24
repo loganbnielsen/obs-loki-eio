@@ -75,24 +75,19 @@ let stream_labels_json pairs =
   `Assoc (List.map (fun (k, v) -> (k, `String v)) pairs)
 
 (* [timestamp_ns, log_line] 2-tuples — the Loki 2.x/3.x-compatible value format. *)
-let loki_push_body ~stream_labels ~values =
-  let stream_obj = stream_labels_json stream_labels in
-  let values_json =
-    `List (List.map (fun (ts, line) ->
-      `List [ `String ts; `String line ]
-    ) values)
-  in
-  let payload =
-    `Assoc [
-      "streams", `List [
-        `Assoc [
-          "stream", stream_obj;
-          "values", values_json;
-        ]
-      ]
-    ]
-  in
-  Yojson.Safe.to_string payload
+let stream_json ~stream_labels ~values =
+  `Assoc [
+    "stream", stream_labels_json stream_labels;
+    "values", `List (List.map (fun (ts, line) -> `List [ `String ts; `String line ]) values);
+  ]
+
+(* One POST for a batch of spans: one stream entry per span (Loki merges
+   entries that share a label set). *)
+let loki_batch_body items =
+  Yojson.Safe.to_string
+    (`Assoc [ "streams",
+              `List (List.map (fun (stream_labels, values) ->
+                         stream_json ~stream_labels ~values) items) ])
 
 (* ------------------------------------------------------------------ *)
 (* Backend                                                             *)
@@ -144,13 +139,103 @@ let selected_stream_labels ~warn_mutex ~warned_missing_labels ~context label_nam
       None
   ) label_names
 
-let create ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names = []) () : Obs_eio.backend =
+(* ------------------------------------------------------------------ *)
+(* Asynchronous export (0.2)                                           *)
+(* ------------------------------------------------------------------ *)
+
+(* [emit_span] only renders and enqueues; a background fiber pushes. A slow or
+   unreachable Loki therefore costs the application nothing but the queued
+   lines it may eventually drop -- it no longer blocks the fiber that closed the
+   span for up to [timeout] (Sol OBS-048 / FND-0051).
+
+   The queue is guarded by a [Stdlib.Mutex] held only around queue operations,
+   never across a yield, so it is safe from any fiber or domain. *)
+type t = {
+  backend : Obs_eio.backend;
+  flush : float -> unit;
+  dropped : int Atomic.t;
+}
+
+let backend t = t.backend
+let dropped t = Atomic.get t.dropped
+let flush ?(timeout = 5.0) t = t.flush timeout
+
+let create ~sw ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names = [])
+    ?(max_queued = 10_000) ?(max_batch = 500) () : t =
   if timeout <= 0. || classify_float timeout = FP_nan then
     invalid_arg "Obs_loki.create: timeout must be positive";
+  if max_queued < 1 then invalid_arg "Obs_loki.create: max_queued must be positive";
+  if max_batch < 1 then invalid_arg "Obs_loki.create: max_batch must be positive";
   validate_url url;
   let label_names = validate_label_names label_names in
   let warn_mutex = Mutex.create () in
   let warned_missing_labels = Hashtbl.create (List.length label_names) in
+  let queue = Queue.create () in
+  let queue_mutex = Mutex.create () in
+  let in_flight = Atomic.make 0 in
+  let dropped = Atomic.make 0 in
+  let wake = Eio.Condition.create () in
+  let with_queue f = Mutex.lock queue_mutex; Fun.protect ~finally:(fun () -> Mutex.unlock queue_mutex) f in
+  let enqueue item =
+    with_queue (fun () ->
+      if Queue.length queue >= max_queued then begin
+        ignore (Queue.take queue);
+        Atomic.incr dropped
+      end;
+      Queue.add item queue);
+    Eio.Condition.broadcast wake
+  in
+  (* Takes a batch and marks it in flight in one step, so [flush] never sees an
+     empty queue while lines are still on their way out. *)
+  let take_batch () =
+    with_queue (fun () ->
+      let rec go n acc =
+        if n = 0 || Queue.is_empty queue then List.rev acc
+        else go (n - 1) (Queue.take queue :: acc)
+      in
+      let batch = go max_batch [] in
+      if batch <> [] then Atomic.incr in_flight;
+      batch)
+  in
+  let last_report = ref neg_infinity in
+  let report_failure ~lines msg =
+    let now = Eio.Time.now clock in
+    if now -. !last_report >= 10. then begin
+      last_report := now;
+      Printf.eprintf "[obs-loki] push failed, %d line(s) lost: %s (dropped so far: %d)\n%!"
+        lines msg (Atomic.get dropped)
+    end
+  in
+  let push batch =
+    Fun.protect ~finally:(fun () -> Atomic.decr in_flight) (fun () ->
+      match http_post ~net ~clock ~timeout ~headers ~url ~body:(loki_batch_body batch) with
+      | Ok () -> ()
+      | Error msg ->
+        report_failure ~lines:(List.fold_left (fun n (_, v) -> n + List.length v) 0 batch) msg)
+  in
+  let rec drain () =
+    match take_batch () with
+    | [] ->
+      (* A missed broadcast (from another domain) costs at most this delay. *)
+      Eio.Fiber.first
+        (fun () -> Eio.Condition.await_no_mutex wake)
+        (fun () -> Eio.Time.sleep clock 1.0);
+      drain ()
+    | batch -> push batch; drain ()
+  in
+  Eio.Fiber.fork_daemon ~sw (fun () -> drain ());
+  let flush timeout =
+    let deadline = Eio.Time.now clock +. timeout in
+    let rec go () =
+      match take_batch () with
+      | [] ->
+        if Atomic.get in_flight > 0 && Eio.Time.now clock < deadline then begin
+          Eio.Time.sleep clock 0.01; go ()
+        end
+      | batch -> push batch; if Eio.Time.now clock < deadline then go ()
+    in
+    go ()
+  in
   let emit_span (e : Obs_eio.span_event) =
     let stream_labels =
       ("service", e.service) ::
@@ -182,9 +267,7 @@ let create ~net ~clock ~url ?(timeout = 5.0) ?(headers = []) ?(label_names = [])
           (ts, line)
         ) e.log_entries
     in
-    let body = loki_push_body ~stream_labels ~values in
-    (match http_post ~net ~clock ~timeout ~headers ~url ~body with
-     | Ok ()      -> ()
-     | Error msg  -> raise (Failure msg))
+    enqueue (stream_labels, values)
   in
-  { Obs_eio.emit_span; emit_metric = (fun _ -> ()); declare_metric = (fun _ -> ()) }
+  { backend = { Obs_eio.emit_span; emit_metric = (fun _ -> ()); declare_metric = (fun _ -> ()) };
+    flush; dropped }

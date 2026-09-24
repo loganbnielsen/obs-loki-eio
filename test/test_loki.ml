@@ -134,8 +134,9 @@ let push_payload_lines body =
 
 let test_push_contains_service () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"test-svc" ~mono_clock:env#mono_clock
                ~backend:loki () in
@@ -149,8 +150,9 @@ let test_push_contains_service () =
 
 let test_log_message_in_payload () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     Obs_eio.with_span ot "work" (fun sp ->
@@ -167,8 +169,9 @@ let test_log_message_in_payload () =
 
 let test_span_name_in_payload () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     Obs_eio.with_span ot "my-span-name" (fun _sp -> ());
@@ -178,8 +181,9 @@ let test_span_name_in_payload () =
 
 let test_context_fields_become_labels () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port)
                  ~label_names:[Obs_loki.stream_label_exn "env";
                                Obs_loki.stream_label_exn "region"] () in
@@ -194,8 +198,9 @@ let test_context_fields_become_labels () =
 
 let test_selected_label_missing_from_context_warns_and_is_omitted () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port)
                  ~label_names:[Obs_loki.stream_label_exn "env";
                                Obs_loki.stream_label_exn "region"] () in
@@ -210,11 +215,12 @@ let test_selected_label_missing_from_context_warns_and_is_omitted () =
 
 let test_missing_selected_label_warns_once () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   let (_result, err) =
     capture_stderr (fun () ->
       with_mock_loki_server env (fun ~port ~body_promise:_ ->
         let loki =
-          Obs_loki.create ~net:env#net ~clock:env#clock
+          Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
             ~url:(local_url port)
             ~label_names:[ Obs_loki.stream_label_exn "region" ] ()
         in
@@ -237,8 +243,9 @@ let test_stream_label_exn_rejects_invalid_name () =
 
 let test_create_rejects_duplicate_label_names () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   match
-    Obs_loki.create
+    Obs_loki.backend @@ Obs_loki.create ~sw
       ~net:env#net
       ~clock:env#clock
       ~url:"http://127.0.0.1:3100"
@@ -250,8 +257,9 @@ let test_create_rejects_duplicate_label_names () =
 
 let test_create_rejects_service_label_name () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   match
-    Obs_loki.create
+    Obs_loki.backend @@ Obs_loki.create ~sw
       ~net:env#net
       ~clock:env#clock
       ~url:"http://127.0.0.1:3100"
@@ -263,8 +271,9 @@ let test_create_rejects_service_label_name () =
 
 let test_create_rejects_invalid_timeout () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   match
-    Obs_loki.create
+    Obs_loki.backend @@ Obs_loki.create ~sw
       ~net:env#net
       ~clock:env#clock
       ~url:"http://127.0.0.1:3100"
@@ -276,8 +285,9 @@ let test_create_rejects_invalid_timeout () =
 
 let test_create_rejects_invalid_url () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   match
-    Obs_loki.create
+    Obs_loki.backend @@ Obs_loki.create ~sw
       ~net:env#net
       ~clock:env#clock
       ~url:"unix:/tmp/loki.sock"
@@ -288,8 +298,9 @@ let test_create_rejects_invalid_url () =
 
 let test_multiple_log_calls () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     Obs_eio.with_span ot "multi" (fun sp ->
@@ -303,8 +314,9 @@ let test_multiple_log_calls () =
 
 let test_logfmt_field_keys_are_safe () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     Obs_eio.with_span ot "work" (fun sp ->
@@ -323,8 +335,9 @@ let test_logfmt_field_keys_are_safe () =
 
 let test_logfmt_field_values_quote_whitespace () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     Obs_eio.with_span ot "work" (fun sp ->
@@ -336,8 +349,9 @@ let test_logfmt_field_values_quote_whitespace () =
 
 let test_log_entries_get_distinct_timestamps () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
     Obs_eio.with_span ot "multi" (fun sp ->
@@ -364,29 +378,36 @@ let test_log_entries_get_distinct_timestamps () =
       Alcotest.(check bool) "per-entry timestamps differ" true (first <> second)
     | _ -> Alcotest.fail "expected two Loki values")
 
-let test_loki_unreachable_reports_backend_error () =
-  Eio_main.run @@ fun env ->
-  let reported = ref None in
-  let loki = Obs_loki.create ~net:env#net ~clock:env#clock
-               ~url:"http://127.0.0.1:19399" () in
+
+(* 0.2: a push failure no longer raises from [emit_span] (the push happens on
+   the exporter's fiber); it is reported on stderr, with the same detail. *)
+let expect_push_failure_on_stderr ~url ~expect ?(level = Obs_eio.Info) env sw =
+  let reported = ref false in
+  let loki = Obs_loki.create ~sw ~net:env#net ~clock:env#clock ~url () in
   let ot =
-    Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki
-      ~on_backend_error:(fun op exn -> reported := Some (op, Printexc.to_string exn))
+    Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock
+      ~backend:(Obs_loki.backend loki)
+      ~on_backend_error:(fun _ _ -> reported := true)
       ()
   in
-  Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test");
-  match !reported with
-  | Some (Obs_eio.Emit_span { name }, msg) ->
-    Alcotest.(check string) "span name" "op" name;
-    Alcotest.(check bool) "loki failure reported" true (contains msg "Loki push")
-  | _ -> Alcotest.fail "expected Loki push failure to reach on_backend_error"
+  Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp level "test");
+  Alcotest.(check bool) "emit does not raise" false !reported;
+  let (), err = capture_stderr (fun () -> Obs_loki.flush ~timeout:10.0 loki) in
+  Alcotest.(check bool) ("reported: " ^ err) true (contains err "push failed");
+  Alcotest.(check bool) ("detail: " ^ err) true (contains err expect)
+
+let test_loki_unreachable_reports_backend_error () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  expect_push_failure_on_stderr ~url:"http://127.0.0.1:19399" ~expect:"Loki push" env sw
 
 (* Verify the JSON payload has the correct Loki push shape:
    {"streams":[{"stream":{...},"values":[[ts,line],...]}]} *)
 let test_payload_json_shape () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env (fun ~port ~body_promise ->
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:(local_url port) () in
     let ot = Obs_eio.create ~service:"shape-svc" ~mono_clock:env#mono_clock ~backend:loki () in
     Obs_eio.with_span ot "check" (fun sp -> Obs_eio.log sp Obs_eio.Info "shape-test");
@@ -416,39 +437,78 @@ let test_payload_json_shape () =
 
 let test_non_2xx_reports_backend_error () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env ~status_code:500 (fun ~port ~body_promise:_ ->
-    let reported = ref None in
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
-                 ~url:(local_url port) () in
-    let ot =
-      Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki
-        ~on_backend_error:(fun op exn -> reported := Some (op, Printexc.to_string exn))
-        ()
-    in
-    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info "test");
-    match !reported with
-    | Some (Obs_eio.Emit_span { name }, msg) ->
-      Alcotest.(check string) "span name" "op" name;
-      Alcotest.(check bool) "status reported" true (contains msg "Loki returned HTTP 500")
-    | _ -> Alcotest.fail "expected non-2xx Loki response to reach on_backend_error")
+    expect_push_failure_on_stderr ~url:(local_url port) ~expect:"Loki returned HTTP 500"
+      env sw)
 
 let test_non_2xx_short_body_reports_backend_error () =
   Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
   with_mock_loki_server env ~status_code:400 (fun ~port ~body_promise:_ ->
-    let reported = ref None in
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
-                 ~url:(local_url port) () in
-    let ot =
-      Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki
-        ~on_backend_error:(fun op exn -> reported := Some (op, Printexc.to_string exn))
-        ()
-    in
-    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Warn "test");
-    match !reported with
-    | Some (Obs_eio.Emit_span { name }, msg) ->
-      Alcotest.(check string) "span name" "op" name;
-      Alcotest.(check bool) "status reported" true (contains msg "Loki returned HTTP 400")
-    | _ -> Alcotest.fail "expected non-2xx Loki response to reach on_backend_error")
+    expect_push_failure_on_stderr ~url:(local_url port) ~expect:"Loki returned HTTP 400"
+      ~level:Obs_eio.Warn env sw)
+
+(* ------------------------------------------------------------------ *)
+(* Asynchronous export (0.2)                                           *)
+(* ------------------------------------------------------------------ *)
+
+(* A Loki that accepts connections and never answers. *)
+let with_black_hole env f =
+  Eio.Switch.run @@ fun sw ->
+  let socket =
+    Eio.Net.listen ~backlog:8 ~reuse_addr:true ~sw env#net
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+  in
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+    let rec loop () = ignore (Eio.Net.accept ~sw socket); loop () in
+    loop ());
+  match Eio.Net.listening_addr socket with
+  | `Tcp (_, port) -> f (local_url port)
+  | _ -> Alcotest.fail "no port"
+
+let test_emit_does_not_wait_for_loki () =
+  Eio_main.run @@ fun env ->
+  with_black_hole env (fun url ->
+    Eio.Switch.run @@ fun sw ->
+    let loki = Obs_loki.create ~sw ~net:env#net ~clock:env#clock ~url () in
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock
+               ~backend:(Obs_loki.backend loki) () in
+    let t0 = Unix.gettimeofday () in
+    for i = 1 to 5 do
+      Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info (string_of_int i));
+      Eio.Fiber.yield ()
+    done;
+    let dt = Unix.gettimeofday () -. t0 in
+    Alcotest.(check bool) (Printf.sprintf "5 spans closed in %.2fs" dt) true (dt < 0.5))
+
+let test_overflow_drops_oldest () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let loki = Obs_loki.create ~sw ~net:env#net ~clock:env#clock
+               ~url:"http://127.0.0.1:19399" ~max_queued:2 () in
+  let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock
+             ~backend:(Obs_loki.backend loki) () in
+  (* No yield in between: the push fiber cannot take anything yet. *)
+  for i = 1 to 5 do
+    Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info (string_of_int i))
+  done;
+  Alcotest.(check int) "three oldest dropped" 3 (Obs_loki.dropped loki)
+
+let test_flush_pushes_everything_queued () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  with_mock_loki_server env (fun ~port ~body_promise ->
+    let loki = Obs_loki.create ~sw ~net:env#net ~clock:env#clock ~url:(local_url port) () in
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock
+               ~backend:(Obs_loki.backend loki) () in
+    List.iter (fun m -> Obs_eio.with_span ot "op" (fun sp -> Obs_eio.log sp Obs_eio.Info m))
+      [ "first-line"; "second-line"; "third-line" ];
+    Obs_loki.flush loki;
+    Alcotest.(check bool) "flush resolved the push" true (Eio.Promise.is_resolved body_promise);
+    let body = Eio.Promise.await body_promise in
+    List.iter (fun m -> Alcotest.(check bool) m true (contains body m))
+      [ "first-line"; "second-line"; "third-line" ])
 
 (* ------------------------------------------------------------------ *)
 (* Live Loki tests (require LOKI_URL env var)                         *)
@@ -498,8 +558,9 @@ let test_live_ingestion () =
     Printf.printf "[skip] LOKI_URL not set — skipping live Loki ingestion test\n%!"
   | Some loki_url ->
     Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
     let unique_service = Printf.sprintf "loki-e2e-test-%d" (int_of_float (Unix.gettimeofday ())) in
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:loki_url () in
     let ot = Obs_eio.create ~service:unique_service
                ~mono_clock:env#mono_clock ~backend:loki () in
@@ -522,8 +583,9 @@ let test_live_trace_id_round_trip () =
     Printf.printf "[skip] LOKI_URL not set — skipping live trace-id round-trip test\n%!"
   | Some loki_url ->
     Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
     let unique_service = Printf.sprintf "loki-trace-test-%d" (int_of_float (Unix.gettimeofday ())) in
-    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
                  ~url:loki_url () in
     let ot = Obs_eio.create ~service:unique_service
                ~mono_clock:env#mono_clock ~backend:loki () in
@@ -577,6 +639,9 @@ let () =
       test_case "logfmt quotes whitespace values"  `Quick test_logfmt_field_values_quote_whitespace;
       test_case "log entries get distinct timestamps" `Quick test_log_entries_get_distinct_timestamps;
       test_case "unreachable Loki reports backend error" `Quick test_loki_unreachable_reports_backend_error;
+      test_case "emit does not wait for Loki" `Quick test_emit_does_not_wait_for_loki;
+      test_case "overflow drops the oldest" `Quick test_overflow_drops_oldest;
+      test_case "flush pushes everything queued" `Quick test_flush_pushes_everything_queued;
       test_case "payload JSON shape"               `Quick test_payload_json_shape;
       test_case "non-2xx response reports backend error" `Quick test_non_2xx_reports_backend_error;
       test_case "non-2xx short body reports backend error" `Quick test_non_2xx_short_body_reports_backend_error;
