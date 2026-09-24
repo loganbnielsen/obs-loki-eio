@@ -31,8 +31,12 @@ LOKI_URL=http://localhost:3100 dune test --force
 ## Public API
 
 ```ocaml
+type t
+
 val create
-  :  net:_ Eio.Net.t
+  :  sw:Eio.Switch.t
+     (** Owns the background push fiber. *)
+  -> net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
   -> url:string
      (** Base URL, e.g. "http://localhost:3100". Push path appended automatically. *)
@@ -44,8 +48,14 @@ val create
      (** Context field names to promote to Loki stream labels (low-cardinality only).
          Missing context fields are logged to stderr and omitted. [service] is
          always included. Default: []. *)
+  -> ?max_queued:int   (** Spans held while Loki is slow/down. Default: 10_000. *)
+  -> ?max_batch:int    (** Spans per push. Default: 500. *)
   -> unit
-  -> Obs_eio.backend
+  -> t
+
+val backend : t -> Obs_eio.backend
+val flush : ?timeout:float -> t -> unit   (* before a short-lived process exits *)
+val dropped : t -> int                     (* spans dropped on queue overflow *)
 ```
 
 HTTPS setup is delegated to `https-eio`, which provides the typed setup errors used by
@@ -95,12 +105,12 @@ Keep labels low-cardinality — `env`, `region`, `tier` are good candidates; `pa
 `request_id` are not.
 
 ```ocaml
-let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+let loki = Obs_loki.create ~sw ~net:env#net ~clock:env#clock
              ~url:"http://localhost:3100"
              ~label_names:[Obs_loki.stream_label_exn "env";
                            Obs_loki.stream_label_exn "region"] () in
 let ot = Obs_eio.create ~service:"payments-worker"
-           ~mono_clock:env#mono_clock ~backend:loki () in
+           ~mono_clock:env#mono_clock ~backend:(Obs_loki.backend loki) () in
 let ot = Obs_eio.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
 ```
 
@@ -108,11 +118,10 @@ Resulting stream: `{service="payments-worker", env="prod", region="eu-west-1"}`
 
 ## Error Handling
 
-If Loki is unreachable or returns a non-2xx status, the backend raises an ordinary
-backend exception from `emit_span`. When used through `Obs_eio.create`, that exception
-is caught and sent to the handle's `on_backend_error` hook (stderr by default), so a
-Loki outage does not affect application control flow. Calling the raw backend directly
-is intentionally lower level and will see the exception.
+`emit_span` never touches the network, so it never fails because of Loki. If a push
+fails (unreachable, timeout, non-2xx), that batch is lost and the failure is printed to
+stderr by the push fiber, with the error and the running drop count, at most once
+every 10 seconds.
 
 ## Timestamps
 
@@ -124,14 +133,20 @@ the span close time.
 
 `https://` URLs are supported: the client authenticates against the system CA bundle
 via `https-eio`/`ca-certs` and refuses to connect without certificate verification. TLS
-setup failures follow the same `Obs_eio` backend-error path.
+setup failures are push failures (see Error Handling).
 
 ## Buffering and Backpressure
 
-None. `emit_span` pushes synchronously — one HTTP POST per span close, bounded by the
-configured timeout — and there is no queue or batching. This is the 0.1 behavior, not a temporary
-gap; add async batching only if synchronous push latency proves unacceptable for a
-target user, since a switch-owned queue and flush fiber is real lifecycle complexity.
+Asynchronous since 0.2. The 0.1 synchronous push put up to the request timeout on
+every span close, so a slow or black-holed Loki made every log call in the
+application slow. Sol measured 5 s per call (Sol OBS-048 / FND-0051). That is the
+latency problem the 0.1 note said would justify a queue.
+
+`emit_span` renders and enqueues. A fiber on the `sw` given to `create` pushes batches
+of up to `max_batch` spans. The queue holds `max_queued` spans; beyond that the oldest
+is dropped and counted (`dropped`). The lifecycle cost is `flush`: a process that
+exits right after logging, such as a cron job, must call `flush` first, or its last
+lines never leave.
 
 ## Local Development
 
@@ -152,6 +167,6 @@ Recommended LogQL queries once a service is pushing logs through this backend:
 
 ## Out of Scope (v1)
 
-- Batching / async push — `emit_span` is synchronous; each span close does one HTTP POST
 - `emit_metric` — metrics go to `obs-prometheus-eio`, not Loki
-- Async batching / lifecycle-managed background flushing
+- Retrying a failed batch — it is dropped and reported; the queue is for latency, not
+  durability
