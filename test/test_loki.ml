@@ -333,6 +333,24 @@ let test_logfmt_field_keys_are_safe () =
     Alcotest.(check bool) "built-in message remains authoritative"
       true (contains body "msg=real-message"))
 
+let test_logfmt_empty_field_key_is_rejected () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  with_mock_loki_server env (fun ~port ~body_promise ->
+    let loki = Obs_loki.backend @@ Obs_loki.create ~sw ~net:env#net ~clock:env#clock
+                 ~url:(local_url port) () in
+    let ot = Obs_eio.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki () in
+    Obs_eio.with_span ot "work" (fun sp ->
+      Obs_eio.log sp Obs_eio.Info ~fields:[("", "secret-value")] "unnamed-field";
+      Obs_eio.log sp Obs_eio.Info ~fields:[("named", "kept")] "named-field");
+    let body = Eio.Promise.await body_promise in
+    Alcotest.(check bool) "a named field still reaches the push" true
+      (contains body "named=kept");
+    Alcotest.(check bool)
+      "an empty field name is rejected, not invented into a field or smuggled in"
+      false
+      (contains body "secret-value"))
+
 let test_logfmt_field_values_quote_whitespace () =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
@@ -655,6 +673,7 @@ let () =
       test_case "invalid URL rejected"              `Quick test_create_rejects_invalid_url;
       test_case "multiple log calls all present"   `Quick test_multiple_log_calls;
       test_case "logfmt field keys are safe"       `Quick test_logfmt_field_keys_are_safe;
+      test_case "logfmt empty field key rejected"   `Quick test_logfmt_empty_field_key_is_rejected;
       test_case "logfmt quotes whitespace values"  `Quick test_logfmt_field_values_quote_whitespace;
       test_case "log entries get distinct timestamps" `Quick test_log_entries_get_distinct_timestamps;
       test_case "unreachable Loki reports backend error" `Quick test_loki_unreachable_reports_backend_error;

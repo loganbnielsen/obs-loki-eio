@@ -26,6 +26,13 @@
     [label_names].  Keep labels low-cardinality (env, region, tier);
     high-cardinality values (request_id, payment_id) belong in the log line.
 
+    A field whose name is empty has no logfmt representation and is **omitted**
+    from the line; it is not renamed to a placeholder, which would have made an
+    unnamed field indistinguishable from one the caller named. Field names are
+    otherwise sanitized in place (a character outside [[A-Za-z0-9_.-]] becomes
+    [_]), and a name colliding with a line-level key ([level], [msg], [span],
+    [status], [trace_id], [span_id]) is prefixed [field_].
+
     {[
       let loki =
         Obs_loki.create ~sw ~net:env#net ~clock:env#clock
