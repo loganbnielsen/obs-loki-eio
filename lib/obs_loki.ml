@@ -37,18 +37,17 @@ let logfmt_key k =
     | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' | '.' | '-' -> true
     | _ -> false
   in
-  let s =
-    String.map (fun c -> if valid c then c else '_') k
-  in
-  if s = "" then "field" else s
+  String.map (fun c -> if valid c then c else '_') k
 
 let logfmt_user_fields fields =
   let reserved = ["level"; "msg"; "span"; "status"; "trace_id"; "span_id"] in
-  List.map (fun (k, v) ->
+  fields
+  |> List.filter (fun (k, _) -> String.length k > 0)
+  |> List.map (fun (k, v) ->
     let k = logfmt_key k in
     let k = if List.mem k reserved then "field_" ^ k else k in
     (k, v)
-  ) fields
+  )
 
 (* trace_id/span_id go in the line body, not structured metadata, so they stay searchable on both Loki 2.x and 3.x. *)
 let trace_fields trace_id span_id =
